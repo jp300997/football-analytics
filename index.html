@@ -1,0 +1,430 @@
+<title>Jun Park Football Analytics</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Public+Sans:ital,wght@0,400;0,500;0,600;1,400&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+  :root {
+    --ground: #F4F6F1;
+    --surface: #FFFFFF;
+    --ink: #17241D;
+    --ink-2: #4A5A50;
+    --ink-3: #7C8A80;
+    --line: #CBD5C9;
+    --line-soft: #E1E8DE;
+    --grass: #1E7A4C;
+    --grass-deep: #145A37;
+    --grass-tint: #E3F0E7;
+    --chalk: #F7FAF5;
+    --amber: #C4841F;
+    --amber-tint: #F8EBD3;
+    --pitch: #1B3B2C;
+    --pitch-line: rgba(255,255,255,0.55);
+    --pitch-text: #E6F0E9;
+    --shadow: 0 1px 2px rgba(23,36,29,0.06), 0 8px 24px rgba(23,36,29,0.06);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ground: #101915;
+      --surface: #172420;
+      --ink: #E8EFE9;
+      --ink-2: #AEBDB3;
+      --ink-3: #7F9086;
+      --line: #2E3F36;
+      --line-soft: #233129;
+      --grass: #4CBE82;
+      --grass-deep: #7ED8A6;
+      --grass-tint: #1B3327;
+      --chalk: #14201A;
+      --amber: #E0A54A;
+      --amber-tint: #3A2C14;
+      --pitch: #0D1F16;
+      --pitch-line: rgba(255,255,255,0.45);
+      --pitch-text: #E6F0E9;
+      --shadow: 0 1px 2px rgba(0,0,0,0.3), 0 8px 24px rgba(0,0,0,0.25);
+    }
+  }
+  :root[data-theme="dark"] {
+    --ground: #101915;
+    --surface: #172420;
+    --ink: #E8EFE9;
+    --ink-2: #AEBDB3;
+    --ink-3: #7F9086;
+    --line: #2E3F36;
+    --line-soft: #233129;
+    --grass: #4CBE82;
+    --grass-deep: #7ED8A6;
+    --grass-tint: #1B3327;
+    --chalk: #14201A;
+    --amber: #E0A54A;
+    --amber-tint: #3A2C14;
+    --pitch: #0D1F16;
+    --pitch-line: rgba(255,255,255,0.45);
+    --pitch-text: #E6F0E9;
+    --shadow: 0 1px 2px rgba(0,0,0,0.3), 0 8px 24px rgba(0,0,0,0.25);
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--ground);
+    color: var(--ink);
+    font-family: "Public Sans", "Segoe UI", system-ui, sans-serif;
+    font-size: 16px;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+  }
+  a { color: var(--grass-deep); text-decoration-thickness: 1px; text-underline-offset: 3px; }
+  a:focus-visible, button:focus-visible { outline: 2px solid var(--amber); outline-offset: 3px; }
+
+  .wrap { max-width: 1080px; margin: 0 auto; padding: 0 28px; }
+
+  /* Masthead */
+  .mast {
+    display: flex; align-items: baseline; justify-content: space-between; gap: 16px;
+    padding: 22px 0 18px; border-bottom: 1px solid var(--line);
+    flex-wrap: wrap;
+  }
+  .mast .name {
+    font-family: "Barlow Condensed", "Arial Narrow", sans-serif;
+    font-weight: 700; font-size: 26px; letter-spacing: 0.01em; text-transform: uppercase;
+  }
+  .mast .name span { color: var(--grass); }
+  .mast nav { display: flex; gap: 22px; font-size: 14px; font-weight: 500; }
+  .mast nav a { color: var(--ink-2); text-decoration: none; }
+  .mast nav a:hover { color: var(--grass-deep); }
+
+  /* Hero */
+  .hero {
+    display: grid; grid-template-columns: 1.15fr 1fr; gap: 48px; align-items: center;
+    padding: 56px 0 48px;
+  }
+  .eyebrow {
+    font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 12px; letter-spacing: 0.12em;
+    text-transform: uppercase; color: var(--grass); font-weight: 500;
+  }
+  .hero h1 {
+    font-family: "Barlow Condensed", "Arial Narrow", sans-serif;
+    font-weight: 600; font-size: clamp(40px, 5.6vw, 64px); line-height: 0.98;
+    margin: 12px 0 18px; text-wrap: balance; letter-spacing: -0.005em;
+  }
+  .hero p.lede { font-size: 18px; color: var(--ink-2); max-width: 34em; margin: 0 0 22px; }
+  .hero .cta { display: flex; gap: 12px; flex-wrap: wrap; }
+  .btn {
+    display: inline-flex; align-items: center; gap: 8px;
+    font-family: "Barlow Condensed", "Arial Narrow", sans-serif; font-weight: 600; font-size: 17px;
+    letter-spacing: 0.04em; text-transform: uppercase; text-decoration: none;
+    padding: 10px 16px; border-radius: 3px; border: 1px solid var(--grass);
+    color: var(--grass-deep); background: transparent;
+  }
+  .btn.primary { background: var(--grass); color: #fff; border-color: var(--grass); }
+  :root[data-theme="dark"] .btn.primary { color: #0F1A14; }
+  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .btn.primary { color: #0F1A14; } }
+  .btn:hover { filter: brightness(1.07); }
+
+  .pitch-card {
+    background: var(--pitch); border-radius: 6px; padding: 18px; box-shadow: var(--shadow);
+  }
+  .pitch-card svg { width: 100%; height: auto; display: block; }
+  .pitch-card .cap {
+    font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 11.5px; color: var(--pitch-text);
+    opacity: 0.8; margin: 12px 0 0; line-height: 1.5;
+  }
+
+  /* Stats strip */
+  .strip {
+    display: grid; grid-template-columns: repeat(4, 1fr); border-top: 1px solid var(--line); border-bottom: 1px solid var(--line);
+  }
+  .strip div { padding: 18px 16px 16px; border-right: 1px solid var(--line-soft); }
+  .strip div:last-child { border-right: 0; }
+  .strip b {
+    display: block; font-family: "Barlow Condensed", "Arial Narrow", sans-serif; font-weight: 700;
+    font-size: 34px; line-height: 1; font-variant-numeric: tabular-nums; color: var(--ink);
+  }
+  .strip small { display: block; margin-top: 6px; font-size: 13px; color: var(--ink-3); }
+
+  /* Sections */
+  section.proj { padding: 56px 0 8px; }
+  section.proj + section.proj { border-top: 1px solid var(--line-soft); }
+  .proj-head { display: grid; grid-template-columns: 1fr auto; gap: 24px; align-items: end; margin-bottom: 20px; }
+  .proj h2 {
+    font-family: "Barlow Condensed", "Arial Narrow", sans-serif; font-weight: 600;
+    font-size: 36px; line-height: 1.02; margin: 8px 0 8px; text-wrap: balance;
+  }
+  .proj .sub { color: var(--ink-2); font-size: 17px; max-width: 40em; margin: 0; }
+  .proj-body { display: grid; grid-template-columns: 1.4fr 1fr; gap: 32px; }
+  .proj-body > div > p:first-child { margin-top: 0; }
+  .proj-body p { max-width: 40em; }
+  .views { list-style: none; padding: 0; margin: 14px 0 0; display: grid; grid-template-columns: 1fr 1fr; gap: 8px 22px; }
+  .views li { padding-left: 14px; position: relative; font-size: 15px; }
+  .views li::before { content: ""; position: absolute; left: 0; top: 0.62em; width: 6px; height: 6px; background: var(--grass); border-radius: 50%; }
+  .views li b { font-weight: 600; }
+
+  .spec {
+    background: var(--surface); border: 1px solid var(--line); border-radius: 4px; padding: 16px 18px; box-shadow: var(--shadow);
+    align-self: start;
+  }
+  .spec h3 {
+    margin: 0 0 10px; font-family: "JetBrains Mono", ui-monospace, monospace; font-weight: 500; font-size: 12px;
+    letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-3);
+  }
+  .spec dl { margin: 0; display: grid; grid-template-columns: auto 1fr; gap: 7px 14px; font-size: 14px; }
+  .spec dt { color: var(--ink-3); white-space: nowrap; }
+  .spec dd { margin: 0; font-variant-numeric: tabular-nums; }
+  .spec .note {
+    margin: 12px 0 0; padding-top: 10px; border-top: 1px dashed var(--line); font-size: 13px; color: var(--ink-2);
+  }
+  .tag { display: inline-block; font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 11.5px; padding: 2px 7px; border-radius: 3px; background: var(--grass-tint); color: var(--grass-deep); margin: 0 4px 4px 0; }
+  .tag.amber { background: var(--amber-tint); color: var(--amber); }
+
+  /* Record table */
+  table { border-collapse: collapse; width: 100%; font-size: 14px; font-variant-numeric: tabular-nums; }
+  th, td { text-align: left; padding: 7px 10px; border-bottom: 1px solid var(--line-soft); }
+  th { font-family: "JetBrains Mono", ui-monospace, monospace; font-weight: 500; font-size: 11.5px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-3); }
+  td.num, th.num { text-align: right; }
+  .table-scroll { overflow-x: auto; }
+
+  /* Principle */
+  .principle {
+    margin: 56px 0 0; padding: 36px 0 40px; border-top: 1px solid var(--line);
+    display: grid; grid-template-columns: 1fr 1.4fr; gap: 40px;
+  }
+  .principle h2 { font-family: "Barlow Condensed", "Arial Narrow", sans-serif; font-weight: 600; font-size: 34px; line-height: 1.02; margin: 6px 0 0; }
+  .principle p { margin: 0 0 12px; max-width: 40em; }
+  .principle ul { margin: 8px 0 0; padding-left: 18px; }
+  .principle li { margin-bottom: 6px; }
+
+  /* Stack */
+  .stack { padding: 8px 0 48px; }
+  .stack h2 { font-family: "Barlow Condensed", "Arial Narrow", sans-serif; font-weight: 600; font-size: 30px; margin: 0 0 14px; }
+  .stack-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; }
+  .stack-grid div { border-top: 2px solid var(--grass); padding-top: 10px; }
+  .stack-grid h3 { margin: 0 0 6px; font-size: 14px; font-weight: 600; letter-spacing: 0.02em; }
+  .stack-grid p { margin: 0; font-size: 14px; color: var(--ink-2); }
+
+  footer { border-top: 1px solid var(--line); padding: 22px 0 40px; font-size: 13.5px; color: var(--ink-3); display: flex; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+  footer a { color: var(--ink-2); }
+
+  @media (max-width: 820px) {
+    .hero { grid-template-columns: 1fr; gap: 28px; padding: 36px 0 32px; }
+    .strip { grid-template-columns: 1fr 1fr; }
+    .strip div:nth-child(2) { border-right: 0; }
+    .strip div:nth-child(1), .strip div:nth-child(2) { border-bottom: 1px solid var(--line-soft); }
+    .proj-body, .principle { grid-template-columns: 1fr; }
+    .proj-head { grid-template-columns: 1fr; }
+    .views { grid-template-columns: 1fr; }
+    .stack-grid { grid-template-columns: 1fr; }
+  }
+  @media (prefers-reduced-motion: no-preference) {
+    .btn { transition: filter 120ms ease; }
+  }
+</style>
+
+<div class="wrap">
+  <header class="mast">
+    <div class="name">Jun Park <span>/</span> Football Analytics</div>
+    <nav>
+      <a href="#tactics">Tactics Board</a>
+      <a href="#dossiers">Opposition Dossiers</a>
+      <a href="#forecast">Forecasting</a>
+      <a href="#method">Method</a>
+    </nav>
+  </header>
+
+  <section class="hero">
+    <div>
+      <div class="eyebrow">Event-data models, built for the pre-match question</div>
+      <h1>What will this team do, in this zone, in this game state?</h1>
+      <p class="lede">A year of independent work turning Opta-schema event feeds for every Premier League and Champions League club into tools a coach or analyst can open the morning of a match: an interactive tactics board, automated opposition dossiers, and a forecasting model that keeps its own score.</p>
+      <div class="cta">
+        <a class="btn primary" href="tactics-board.html">Open the Tactics Board</a>
+        <a class="btn" href="opposition-board.html">Open the Dossiers</a>
+      </div>
+    </div>
+    <div class="pitch-card" aria-label="18-zone tactical grid on a football pitch">
+      <svg viewBox="0 0 300 200" role="img">
+        <rect x="0" y="0" width="300" height="200" fill="#1B3B2C"/>
+        <g stroke="rgba(255,255,255,0.10)" stroke-width="1">
+          <line x1="50" y1="10" x2="50" y2="190"/><line x1="100" y1="10" x2="100" y2="190"/>
+          <line x1="200" y1="10" x2="200" y2="190"/><line x1="250" y1="10" x2="250" y2="190"/>
+          <line x1="10" y1="70" x2="290" y2="70"/><line x1="10" y1="130" x2="290" y2="130"/>
+        </g>
+        <g fill="none" stroke="rgba(255,255,255,0.55)" stroke-width="1.4">
+          <rect x="10" y="10" width="280" height="180"/>
+          <line x1="150" y1="10" x2="150" y2="190"/>
+          <circle cx="150" cy="100" r="24"/>
+          <rect x="10" y="52" width="44" height="96"/><rect x="246" y="52" width="44" height="96"/>
+          <rect x="10" y="78" width="16" height="44"/><rect x="274" y="78" width="16" height="44"/>
+        </g>
+        <!-- press regain concentration, zones in the opponent's half -->
+        <g>
+          <rect x="200" y="70" width="50" height="60" fill="#4CBE82" opacity="0.28"/>
+          <rect x="250" y="70" width="40" height="60" fill="#4CBE82" opacity="0.42"/>
+          <rect x="200" y="10" width="50" height="60" fill="#4CBE82" opacity="0.16"/>
+          <rect x="150" y="70" width="50" height="60" fill="#E0A54A" opacity="0.30"/>
+        </g>
+        <!-- a build-up trace -->
+        <g fill="none" stroke="#FFFFFF" stroke-width="1.6" stroke-dasharray="4 3" opacity="0.9">
+          <polyline points="40,100 95,150 150,142 198,98 236,72"/>
+        </g>
+        <g fill="#FFFFFF">
+          <circle cx="40" cy="100" r="3.2"/><circle cx="95" cy="150" r="3.2"/><circle cx="150" cy="142" r="3.2"/><circle cx="198" cy="98" r="3.2"/>
+        </g>
+        <circle cx="236" cy="72" r="4.2" fill="#E0A54A"/>
+        <g font-family="JetBrains Mono, monospace" font-size="7.5" fill="rgba(255,255,255,0.7)">
+          <text x="14" y="187">OWN GOAL</text>
+          <text x="248" y="187">OPP GOAL</text>
+          <text x="204" y="66">EXPLOIT</text>
+          <text x="154" y="66">CONTESTED</text>
+        </g>
+      </svg>
+      <p class="cap">18-zone grid, attacking left to right. Shaded cells: where an opponent's press regains concentrate. Dashed trace: one most-likely build-up path walked from a real possession trie, ending at the highest-risk step.</p>
+    </div>
+  </section>
+
+  <div class="strip">
+    <div><b>664</b><small>matches of Opta-schema event data, 2025/26</small></div>
+    <div><b>1.02m</b><small>events in a DuckDB / Parquet star schema</small></div>
+    <div><b>51</b><small>club dossiers regenerated by one command</small></div>
+    <div><b>0.80</b><small>held-out AUC of the logistic xG model</small></div>
+  </div>
+
+  <section class="proj" id="tactics">
+    <div class="proj-head">
+      <div>
+        <div class="eyebrow">Live tool · all 20 Premier League clubs</div>
+        <h2>EPL Tactics Board</h2>
+        <p class="sub">Seven views of how each club builds, presses, shapes up and attacks set pieces, and a Matchup tab that pits any club's build-up against any other club's pressing.</p>
+      </div>
+      <a class="btn" href="tactics-board.html">Open board</a>
+    </div>
+    <div class="proj-body">
+      <div>
+        <p>Every number on the board comes from real events, and every sequence is modelled rather than replayed. Passing chains and press episodes are stored as tries of real transitions with low-support branches pruned, so "most likely" walks the tree deterministically and "one real draw" samples it. Small-sample caveats sit in the captions, not the footnotes.</p>
+        <ul class="views">
+          <li><b>Passing.</b> Build-up by zone and channel, progressive outlets vs recycling anchors, sequence lengths, long-ball share.</li>
+          <li><b>Pressing.</b> Press episodes from possession spells: PPDA by third, block height, regain speed, coordination, intensity by game state.</li>
+          <li><b>Formations.</b> Real Opta formation events and in-game shape changes, not shapes inferred from average positions.</li>
+          <li><b>Set Pieces.</b> Corners and free kicks plotted at real delivery and shot coordinates, with takers and first-contact defenders.</li>
+          <li><b>Players.</b> Full squad profiles, player-vs-player duels resolved through Opta's linked-event qualifiers, minutes and starts.</li>
+          <li><b>Matchup.</b> Attacker's build-up share × defender's regain multiplier per zone, ranked Exploit / Contested / Danger, with a stated approach.</li>
+        </ul>
+      </div>
+      <aside class="spec">
+        <h3>Under the hood</h3>
+        <dl>
+          <dt>Source</dt><dd>Opta-schema event feeds, bronze JSON → silver star schema</dd>
+          <dt>Store</dt><dd>DuckDB + Parquet: matches, events, qualifiers</dd>
+          <dt>Models</dt><dd>Bootstrapped possession tries; logistic xG (distance, angle, body part, situation); game-state conditioning off real goal events</dd>
+          <dt>Output</dt><dd>Single-file interactive HTML, SVG pitch graphics, no server</dd>
+        </dl>
+        <p class="note">Deliberately not built: shape inference from events, a "this will happen" match replay, finer zone granularity. Each needs tracking data to be done honestly.</p>
+      </aside>
+    </div>
+  </section>
+
+  <section class="proj" id="dossiers">
+    <div class="proj-head">
+      <div>
+        <div class="eyebrow">Automated reporting · 20 EPL + 36 Champions League clubs</div>
+        <h2>Opposition Dossiers</h2>
+        <p class="sub">One command turns every tactical layer into a standardised pre-match dossier per club, published as an HTML board and a Markdown file each.</p>
+      </div>
+      <a class="btn" href="opposition-board.html">Open dossiers</a>
+    </div>
+    <div class="proj-body">
+      <div>
+        <p>Each dossier opens with an evidence-based plan to beat the club, then the triggers and patterns a coach wants on one page: what sets off their press, what they do when ahead and when behind, formation changes by score state with the typical minute, substitution timing and the most-used subs, and the pressing linchpins.</p>
+        <ul class="views">
+          <li><b>Style.</b> Possession, tilt, directness, crosses, deep completions, shot quality, set-piece and counter shares, corridors, entries by channel.</li>
+          <li><b>Defending.</b> PPDA overall and by third, block height, high recoveries, regain speed, aerials, errors, and the channel opponents enter through.</li>
+          <li><b>Game states.</b> Tilt, PPDA, shots, counters and crosses when level, leading and trailing; first-goal effects.</li>
+          <li><b>People.</b> Danger men, creators, key players by involvement, current absentees, last season's usual XI with departures flagged.</li>
+        </ul>
+      </div>
+      <aside class="spec">
+        <h3>Under the hood</h3>
+        <dl>
+          <dt>Inputs</dt><dd>Event layers above, plus Understat shots, Transfermarkt availability, UEFA and Premier League fixture feeds</dd>
+          <dt>Context</dt><dd>Every metric carries a percentile against the 51-club field</dd>
+          <dt>Refresh</dt><dd>Rebuilds from source in one command; no hand edits between weeks</dd>
+        </dl>
+        <p class="note">Same rule as the board: a section that would need a guessed time window or an inferred shape is left out rather than estimated.</p>
+      </aside>
+    </div>
+  </section>
+
+  <section class="proj" id="forecast">
+    <div class="proj-head">
+      <div>
+        <div class="eyebrow">Model that keeps its own score · EPL + Champions League 2026/27</div>
+        <h2>Match Forecasting</h2>
+        <p class="sub">A state-space Dixon-Coles rating model with injury and fatigue layers and minute-level simulation, run unattended on a schedule and graded against results and the closing market.</p>
+      </div>
+    </div>
+    <div class="proj-body">
+      <div>
+        <p>Team ratings are per-season nodes with club-specific carry-over, a squad-value prior and hierarchical shrinkage across league groups. Injuries scrape from Transfermarkt into per-player multipliers, fatigue reads from fixture congestion, and each match is simulated minute by minute. Every run logs its pre-kick-off numbers; once results land, the last snapshot before kick-off is scored.</p>
+        <p>The point of the live record is that it is allowed to look bad. A backtest fit blind to a full season showed the market's closing prices ahead of the raw model, and the live record so far says the same, so the model is used as one input beside the market rather than instead of it.</p>
+        <div class="table-scroll">
+          <table>
+            <thead><tr><th>Live record, 2026/27 to date</th><th class="num">Model</th><th class="num">Market</th></tr></thead>
+            <tbody>
+              <tr><td>Matches scored</td><td class="num">21</td><td class="num">21</td></tr>
+              <tr><td>1X2 log loss (lower is better)</td><td class="num">0.908</td><td class="num">0.858</td></tr>
+              <tr><td>Favourite accuracy</td><td class="num">52%</td><td class="num">57%</td></tr>
+              <tr><td>Expected vs actual goals per match</td><td class="num">3.16</td><td class="num">3.43 actual</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+      <aside class="spec">
+        <h3>Under the hood</h3>
+        <dl>
+          <dt>Ratings</dt><dd>State-space Dixon-Coles, UEFA-coefficient prior for cross-league strength</dd>
+          <dt>Layers</dt><dd>Injury multipliers, season-transition analysis, fatigue, event-level matchup narrative</dd>
+          <dt>Automation</dt><dd>Scheduled Python runs, HTML report, prediction log scored automatically</dd>
+          <dt>Validation</dt><dd>Blind full-season backtest; live log loss vs closing prices</dd>
+        </dl>
+        <p class="note">Known weak spots are named in the report: big favourites against minnows are under-rated, and Norwegian clubs are the least reliable ratings in the set.</p>
+      </aside>
+    </div>
+  </section>
+
+  <section class="principle" id="method">
+    <div>
+      <div class="eyebrow">Working principle</div>
+      <h2>Never show a coach more precision than the data supports.</h2>
+    </div>
+    <div>
+      <p>Event data without tracking tells you what happened on the ball. It does not tell you where the other twenty players stood. Every choice in these tools follows from that limit.</p>
+      <ul>
+        <li>Positional estimates for off-ball players are tiered as interpolated, recent or estimated, and labelled as such on the pitch.</li>
+        <li>Formations come from Opta's own formation events. Inferring shape from average positions was tried and dropped.</li>
+        <li>Indirect free kicks are not linked to a resulting shot, because no qualifier connects them and a time-window guess would be a fabrication.</li>
+        <li>Two upstream data faults were caught and handled before reaching a report: player ids shared by two people at different clubs, and mirrored aerial duels that produced impossible 100% win rates when thresholded per side.</li>
+        <li>Backtests and the live record are published even where they favour the market.</li>
+      </ul>
+    </div>
+  </section>
+
+  <section class="stack">
+    <h2>Stack</h2>
+    <div class="stack-grid">
+      <div>
+        <h3>Data</h3>
+        <p>Opta-schema event feeds, Understat, StatsBomb open data, FBref, Transfermarkt, UEFA and Premier League fixture APIs. Bronze raw JSON, silver star schema in DuckDB and Parquet, analysis in SQL and pandas.</p>
+      </div>
+      <div>
+        <h3>Modelling</h3>
+        <p>Python with pandas, NumPy and scikit-learn. Bootstrapped transition tries, logistic xG, state-space Dixon-Coles with hierarchical shrinkage, Monte Carlo season and minute-level match simulation.</p>
+      </div>
+      <div>
+        <h3>Delivery</h3>
+        <p>Single-file interactive HTML with SVG pitch graphics, Markdown dossiers, scheduled unattended runs with logged and self-scored predictions. Professionally: SQL on Postgres, Hex apps, AWS, Docker, Grafana.</p>
+      </div>
+    </div>
+  </section>
+
+  <footer>
+    <span>Jun Park · Sydney · <a href="mailto:jp300997@gmail.com">jp300997@gmail.com</a></span>
+    <span>Independent work, 2025–2026. Aggregated statistics only; no raw event data is redistributed.</span>
+  </footer>
+</div>
