@@ -117,6 +117,13 @@ svg { display:block; width:100%; height:auto; }
 .zsel button[aria-pressed="true"] { background:var(--turf); color:#fff; border-color:var(--turf); }
 .zsel button:disabled { opacity:.32; cursor:not-allowed; }
 
+.keys { display:flex; flex-wrap:wrap; gap:6px 20px; margin:2px 2px 12px; font-size:12.5px; color:var(--ink-soft); }
+.key { display:inline-flex; align-items:center; gap:7px; }
+.key i { width:14px; height:14px; border-radius:3px; flex:none; border:1px solid var(--line-strong); }
+.key i.gold { background:transparent; border:2px dashed var(--gold); }
+.key i.hatched { background:repeating-linear-gradient(45deg,var(--line-strong) 0 1.5px,transparent 1.5px 4px); }
+.dim { color:var(--ink-mute); }
+
 .note { border-left:3px solid var(--gold); background:var(--surface); padding:12px 14px;
   border-radius:0 5px 5px 0; font-size:13.5px; color:var(--ink-soft); }
 .note b { color:var(--ink); }
@@ -281,6 +288,44 @@ function zoneLabel(z) {
   return ['L','C','R'][row] + (col + 1);
 }
 
+// Plain-English name for a ball zone. "C2" tells a reader nothing; where on the
+// pitch it is does.
+const ZONE_BAND = ['in their own box', 'in their own build-up area',
+                   'just inside their own half', 'just inside the opponent half',
+                   'on the edge of the final third', 'in the final third'];
+const ZONE_LANE = ['down the left', 'centrally', 'down the right'];
+
+function zoneWords(z) {
+  const cols = DATA.shape360.zones.cols;
+  return ZONE_BAND[z % cols] + ', ' + ZONE_LANE[Math.floor(z / cols)];
+}
+
+/* One sentence saying what the selected view actually shows.
+   Built only from ball-centred measurements - distance to the nearest opponent,
+   how often somebody was inside five metres, and how many players of each side
+   were within ten metres. Those are the numbers the broadcast camera can be
+   trusted on, because it is pointing at the ball. Nothing here describes the
+   defensive block as a whole: that would be reading the camera, not the game. */
+function shapeVerdict(M, z, onBall) {
+  const d = M.nearest_opponent_m?.[z], p = M.pressed_within_5m?.[z];
+  const s = M.support_within_10m?.[z], o = M.opponents_within_10m?.[z];
+  if (d === null || d === undefined) return '';
+  const room = d >= 6.5 ? `<b>${esc(onBall)} were given time on the ball here.</b>`
+             : d >= 4.5 ? `<b>${esc(onBall)} were contested here, but not swarmed.</b>`
+             : `<b>${esc(onBall)} were closed down quickly here.</b>`;
+  const tail = d >= 6.5 ? 'That is room to turn and pick a pass, not a pressing trap.'
+             : d >= 4.5 ? 'Close enough to hurry a decision, far enough to allow one.'
+             : 'A touch here is taken under real pressure.';
+  let near = '';
+  if (s !== null && o !== null) {
+    near = s > o + 0.3 ? ` They had more team-mates than opponents close by (${nf(s,1)} against ${nf(o,1)} within ten metres).`
+         : o > s + 0.3 ? ` The defence had more bodies close by (${nf(o,1)} against ${nf(s,1)} within ten metres).`
+         : ` Bodies near the ball were even (${nf(s,1)} team-mates against ${nf(o,1)} opponents within ten metres).`;
+  }
+  return `${room} The nearest opponent was a median <b>${nf(d,1)} m</b> away, and somebody was
+    inside five metres only <b>${nf(p,0)}%</b> of the time.${near} ${tail}`;
+}
+
 function renderShape() {
   const S = DATA.shape360, st = shapeState;
   const camp = S.campaigns[st.camp];
@@ -288,10 +333,10 @@ function renderShape() {
   const zones = S.zones, grid = S.grid;
 
   let h = `<h2>Measured shape, not estimated shape</h2>
-  <p class="lede">Pick where the ball was. The pitch below shows where players actually stood
-  at that moment, averaged over every validated freeze frame with the ball in that zone.
-  This is the one thing event data cannot give you: with events alone you know who touched
-  the ball and where, and nothing about the other twenty players.</p>`;
+  <p class="lede"><b>Pick a spot on the pitch where the ball was. The picture below shows where
+  everyone else was standing at that moment</b>, averaged over every real moment the ball was
+  there. With event data alone you know who touched the ball and where, and nothing at all
+  about the other twenty players. This is the part that needs positional data.</p>`;
 
   h += `<div class="controls">
     <span><span class="lbl">Side</span><span class="seg">` +
@@ -316,13 +361,14 @@ function renderShape() {
       const z = r * zones.cols + col;
       const n = blk.frames[z], live = !!blk.grids[z];
       h += `<button data-set="zone" data-val="${z}" aria-pressed="${st.zone===z}" ${live?'':'disabled'}
-        title="${n} frames">${zoneLabel(z)}<br><span class="num" style="font-weight:400;font-size:9.5px">${n}</span></button>`;
+        title="Ball ${zoneWords(z)} &mdash; ${n} real moments">${zoneLabel(z)}<br><span class="num" style="font-weight:400;font-size:9.5px">${n}</span></button>`;
     }
   }
-  h += `</div><p class="cap">Rows are channels as the team on the ball sees them:
-  <b>L</b> left, <b>C</b> central, <b>R</b> right. Columns run from that team's own goal (1)
-  to the goal they attack (6). The small number is the frame count; a zone with fewer than
-  ${S.thresholds.min_frames_zone} frames is greyed out rather than drawn.</p></div>`;
+  h += `</div><p class="cap">This grid <b>is</b> the pitch, attacking left to right: the left
+  column is their own goal, the right column the goal they attack, and the three rows are the
+  left channel, the middle and the right channel. So <b>C2</b> is centrally, in their own
+  build-up area. The small number is how many real moments that square is built from; a square
+  with fewer than ${S.thresholds.min_frames_zone} is greyed out rather than drawn.</p></div>`;
 
   // metrics for the selected zone
   const M = blk.metrics, z = st.zone;
@@ -335,7 +381,7 @@ function renderShape() {
     ['Team-mates ahead of the ball', M.teammates_ahead_of_ball?.[z], ''],
     ['Players visible in the frame, of 22', M.visible_players?.[z], ''],
   ];
-  h += `<div><h3>Measured in zone ${zoneLabel(z)} &middot; ${blk.frames[z]} frames</h3>
+  h += `<div><h3>With the ball ${esc(zoneWords(z))}</h3>
     <table><tbody>` +
     rows.map(([k, v, u]) => `<tr><td>${k}</td><td class="num">${v===null||v===undefined?'&ndash;':nf(v,2)+u}</td></tr>`).join('') +
     `</tbody></table>
@@ -372,26 +418,46 @@ function renderShape() {
       }
       cells += `<rect x="${x}" y="${y}" width="${cw}" height="${ch}" fill="${fill}" opacity="${op.toFixed(3)}"/>`;
     }
-    // outline the selected ball zone
+    // outline the selected ball zone, and say on the pitch what the box is
     const zw = PW / zones.cols, zh = PH / zones.rows;
     const zc = z % zones.cols, zr = Math.floor(z / zones.cols);
     cells += `<rect x="${zc*zw}" y="${zr*zh}" width="${zw}" height="${zh}" fill="none"
-      stroke="var(--gold)" stroke-width="0.8" stroke-dasharray="2 1.5"/>`;
+      stroke="var(--gold)" stroke-width="0.8" stroke-dasharray="2 1.5"/>
+      <text x="${zc*zw + zw/2}" y="${zr*zh + zh/2 + 1}" text-anchor="middle"
+        style="font-size:3.4px;font-weight:700" fill="var(--gold)">BALL HERE</text>`;
   }
   const defs = `<defs><pattern id="hatch" width="3" height="3" patternUnits="userSpaceOnUse"
     patternTransform="rotate(45)"><line x1="0" y1="0" x2="0" y2="3" stroke="var(--pitch-line)" stroke-width="0.6"/></pattern></defs>`;
 
   const onBall = st.phase === 'in_possession' ? CAMP_NAME[st.camp] : camp.phases ? 'the opponent' : '';
   const defending = st.phase === 'in_possession' ? 'the opponent' : CAMP_NAME[st.camp];
-  h += `<h3 style="margin-top:26px">Where players stood &middot; ball in zone ${zoneLabel(z)}</h3>
-  <div class="card" style="padding:12px">${pitchSvg(1180, 520, defs + cells)}</div>
-  <p class="cap"><b>Green</b> is the team on the ball (${esc(onBall)}), <b>orange</b> the team
-  defending (${esc(defending)}). Attacking left to right, so the top of the image is the left
-  channel. Hatched cells are refused: the broadcast camera covered them in fewer than
-  ${S.thresholds.min_vis_cell} of this zone's frames, and a cell the camera never showed would
-  otherwise read as "nobody stands here", which is a camera fact rather than a football one.
-  Every cell has its own denominator &mdash; players seen there divided by the number of frames
-  in which that cell was genuinely inside the visible area.</p>`;
+  const layerKey = st.layer === 'own'
+    ? `<span class="key"><i style="background:var(--turf)"></i>Darker green = more <b>${esc(onBall)}</b> players stood there</span>`
+    : st.layer === 'opp'
+    ? `<span class="key"><i style="background:var(--chalk)"></i>Darker orange = more <b>${esc(defending)}</b> players stood there</span>`
+    : `<span class="key"><i style="background:var(--turf)"></i>Green = <b>${esc(onBall)}</b> outnumbered ${esc(defending)} in that square</span>
+       <span class="key"><i style="background:var(--chalk)"></i>Orange = <b>${esc(defending)}</b> outnumbered ${esc(onBall)}</span>`;
+
+  h += `<h3 style="margin-top:26px">Ball ${esc(zoneWords(z))} &mdash; where everyone else stood</h3>
+  <p class="lede" style="margin-bottom:10px">${shapeVerdict(M, z, onBall)}
+  <span class="dim">Measured over ${blk.frames[z]} real moments.</span></p>
+  <div class="card" style="padding:12px">
+    <div class="keys">${layerKey}
+      <span class="key"><i class="gold"></i>Gold box = where the ball was</span>
+      <span class="key"><i class="hatched"></i>Hatched = the camera did not cover it</span>
+    </div>
+    ${pitchSvg(1180, 520, defs + cells)}
+  </div>
+  <p class="cap"><b>How to read it.</b> Each square is 10 m by 10 m. The shading is how many
+  players stood in that square at the moment of a touch, averaged over all
+  ${blk.frames[z]} moments with the ball in the gold box. The team is attacking left to right,
+  so the top of the image is their left. Hatched squares are refused rather than drawn: the
+  camera covered them in fewer than ${S.thresholds.min_vis_cell} of these moments, and a square
+  the camera never showed would otherwise read as "nobody stands here", which is a camera fact
+  rather than a football one.</p>
+  <p class="cap"><b>What not to read into it.</b> The camera follows the ball, so this is a
+  reliable picture of who was <i>around the ball</i> and not of the full team shape. The
+  sentence above is built only from distances measured around the ball for that reason.</p>`;
 
   const q = camp.quality;
   h += `<div class="note" style="margin-top:18px"><b>What this layer is honest about.</b>
