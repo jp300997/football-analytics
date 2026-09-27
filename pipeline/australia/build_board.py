@@ -132,6 +132,12 @@ svg { display:block; width:100%; height:auto; }
 .key i { width:14px; height:14px; border-radius:3px; flex:none; border:1px solid var(--line-strong); }
 .key i.gold { background:transparent; border:2px dashed var(--gold); }
 .key i.hatched { background:repeating-linear-gradient(45deg,var(--line-strong) 0 1.5px,transparent 1.5px 4px); }
+.key i.ringed { background:var(--chalk); box-shadow:0 0 0 2px var(--surface),0 0 0 3px var(--ink-soft); border:0; }
+.key i.dashline { background:repeating-linear-gradient(90deg,var(--ink-soft) 0 4px,transparent 4px 7px); border:0; border-radius:0; height:3px; }
+.key i.corridor { background:var(--surface-2); border:1px dashed var(--line-strong); }
+.moment { margin-top:12px; padding-top:10px; border-top:1px solid var(--line); }
+.mtitle { font-size:16px; font-weight:650; }
+.mline { font-size:13.5px; color:var(--ink-soft); margin-top:3px; }
 .dim { color:var(--ink-mute); }
 
 .note { border-left:3px solid var(--gold); background:var(--surface); padding:12px 14px;
@@ -149,7 +155,7 @@ a { color:var(--turf); }
 def build() -> None:
     out = Path(__file__).parent / "output"
     data = {name: json.loads((out / f"{name}.json").read_text(encoding="utf-8"))
-            for name in ("campaigns", "shape360", "compare", "players", "pathway")}
+            for name in ("campaigns", "shape360", "compare", "players", "pathway", "linebreak")}
 
     # Header figures are derived, not typed, so a rerun on new data stays true.
     n_matches = len(data["campaigns"]["matches"])
@@ -182,7 +188,7 @@ def build() -> None:
 
 <nav class="tabs"><div class="wrap" role="tablist">
   <button class="tab" role="tab" data-tab="campaigns" aria-selected="true">Campaigns</button>
-  <button class="tab" role="tab" data-tab="shape" aria-selected="false">Measured shape</button>
+  <button class="tab" role="tab" data-tab="shape" aria-selected="false">Breaking lines</button>
   <button class="tab" role="tab" data-tab="compare" aria-selected="false">Event data vs 360</button>
   <button class="tab" role="tab" data-tab="players" aria-selected="false">Australians</button>
   <button class="tab" role="tab" data-tab="pathway" aria-selected="false">Pathway</button>
@@ -226,7 +232,10 @@ function pitchSvg(w, h, inner) {
   // Direct coordinate mapping: x rightward (attacking), y downward. y=0 is the
   // attacking team's LEFT touchline, so the left back sits at the top - the
   // physically correct bird's-eye view and StatsBomb's own plot orientation.
-  const pad = 2;
+  // 0.84% of real 360 positions sit outside the pitch rectangle, up to 8.6 m
+  // out - a player who has run past the touchline, or noise near the line. The
+  // padding keeps them drawn where they actually were instead of clipping them.
+  const pad = 5;
   return `<svg viewBox="${-pad} ${-pad} ${PW+2*pad} ${PH+2*pad}" style="max-height:${h}px">
     <rect x="0" y="0" width="${PW}" height="${PH}" fill="var(--pitch)"/>
     ${inner}
@@ -317,17 +326,13 @@ function renderCampaigns() {
   $('#p-campaigns').innerHTML = h;
 }
 
-/* ---------------------------------------------------------------- shape ---- */
-const shapeState = { camp:'matildas', phase:'in_possession', zone:8, layer:'diff' };
+/* ---------------------------------------------------------- line-breaking -- */
+const linesState = { camp:'matildas', moment:0, zone:'all' };
 
-function zoneLabel(z) {
-  const cols = DATA.shape360.zones.cols;
-  const row = Math.floor(z / cols), col = z % cols;
-  return ['L','C','R'][row] + (col + 1);
-}
-
-// Plain-English name for a ball zone. "C2" tells a reader nothing; where on the
-// pitch it is does.
+/* Ball-zone pressure numbers, kept from the density panel this replaces.
+   The density grid itself is gone: averaged over hundreds of moments the team on
+   the ball is always behind it and the defending team always in front, because
+   that is what playing football is. It drew the rules of the game, not Australia. */
 const ZONE_BAND = ['in their own box', 'in their own build-up area',
                    'just inside their own half', 'just inside the opponent half',
                    'on the edge of the final third', 'in the final third'];
@@ -338,177 +343,158 @@ function zoneWords(z) {
   return ZONE_BAND[z % cols] + ', ' + ZONE_LANE[Math.floor(z / cols)];
 }
 
-/* One sentence saying what the selected view actually shows.
-   Built only from ball-centred measurements - distance to the nearest opponent,
-   how often somebody was inside five metres, and how many players of each side
-   were within ten metres. Those are the numbers the broadcast camera can be
-   trusted on, because it is pointing at the ball. Nothing here describes the
-   defensive block as a whole: that would be reading the camera, not the game. */
-function shapeVerdict(M, z, onBall) {
-  const d = M.nearest_opponent_m?.[z], p = M.pressed_within_5m?.[z];
-  const s = M.support_within_10m?.[z], o = M.opponents_within_10m?.[z];
-  if (d === null || d === undefined) return '';
-  const room = d >= 6.5 ? `<b>${esc(onBall)} were given time on the ball here.</b>`
-             : d >= 4.5 ? `<b>${esc(onBall)} were contested here, but not swarmed.</b>`
-             : `<b>${esc(onBall)} were closed down quickly here.</b>`;
-  const tail = d >= 6.5 ? 'That is room to turn and pick a pass, not a pressing trap.'
-             : d >= 4.5 ? 'Close enough to hurry a decision, far enough to allow one.'
-             : 'A touch here is taken under real pressure.';
-  let near = '';
-  if (s !== null && o !== null) {
-    near = s > o + 0.3 ? ` They had more team-mates than opponents close by (${nf(s,1)} against ${nf(o,1)} within ten metres).`
-         : o > s + 0.3 ? ` The defence had more bodies close by (${nf(o,1)} against ${nf(s,1)} within ten metres).`
-         : ` Bodies near the ball were even (${nf(s,1)} team-mates against ${nf(o,1)} opponents within ten metres).`;
+/* ---- the real moment, drawn with every player the camera could see ---- */
+function momentSvg(mo) {
+  const [sx, sy] = mo.start, [ex, ey] = mo.end;
+  const dx = ex - sx, dy = ey - sy, len = Math.hypot(dx, dy) || 1;
+  const nx = -dy / len * 10, ny = dx / len * 10;   // 10 m corridor normal
+  let g = '';
+
+  // the corridor: what "bypassed" is actually counting
+  g += `<polygon points="${sx+nx},${sy+ny} ${ex+nx},${ey+ny} ${ex-nx},${ey-ny} ${sx-nx},${sy-ny}"
+        fill="var(--pitch-ink)" opacity="0.07" stroke="var(--pitch-ink)" stroke-opacity="0.18"
+        stroke-width="0.3" stroke-dasharray="1.5 1.5"/>`;
+
+  // the pass
+  g += `<line x1="${sx}" y1="${sy}" x2="${ex}" y2="${ey}" stroke="#fff" stroke-width="0.9"
+        stroke-dasharray="3 2" opacity="0.95"/>`;
+  g += `<circle cx="${ex}" cy="${ey}" r="2.2" fill="none" stroke="#fff" stroke-width="0.8"/>`;
+  g += `<circle cx="${ex}" cy="${ey}" r="0.8" fill="#fff"/>`;
+
+  for (const p of mo.players) {
+    const isTeam = p.t === 1;
+    const fill = isTeam ? 'var(--turf)' : 'var(--chalk)';
+    const r = p.b ? 2.6 : 2.1;
+    if (p.b) g += `<circle cx="${p.x}" cy="${p.y}" r="4.1" fill="none" stroke="#fff"
+                    stroke-width="0.7" opacity="0.9"/>`;
+    g += `<circle cx="${p.x}" cy="${p.y}" r="${r}" fill="${fill}"
+          stroke="${p.k ? '#fff' : 'rgba(0,0,0,0.35)'}" stroke-width="${p.k ? 0.7 : 0.3}"
+          ${p.k ? 'stroke-dasharray="1 1"' : ''}/>`;
+    if (p.a) g += `<circle cx="${p.x}" cy="${p.y}" r="3.6" fill="none" stroke="#fff" stroke-width="0.8"/>`;
   }
-  return `${room} The nearest opponent was a median <b>${nf(d,1)} m</b> away, and somebody was
-    inside five metres only <b>${nf(p,0)}%</b> of the time.${near} ${tail}`;
+  return g;
 }
 
-function renderShape() {
-  const S = DATA.shape360, st = shapeState;
-  const camp = S.campaigns[st.camp];
-  const blk = camp.phases[st.phase];
-  const zones = S.zones, grid = S.grid;
+function renderLines() {
+  const L = DATA.linebreak, S = DATA.shape360, st = linesState;
+  const P = L.params;
 
-  let h = `<h2>Measured shape, not estimated shape</h2>
-  <p class="lede"><b>Pick a spot on the pitch where the ball was. The picture below shows where
-  everyone else was standing at that moment</b>, averaged over every real moment the ball was
-  there. With event data alone you know who touched the ball and where, and nothing at all
-  about the other twenty players. This is the part that needs positional data.</p>`;
+  let h = `<h2>Who takes opponents out of the game</h2>
+  <p class="lede"><b>For every completed forward pass, how many opponents the ball went past.</b>
+  A square ball in front of the block beats nobody. A ten-yard pass through midfield can beat
+  three. That difference is what a coach means by breaking lines, and you cannot see it at all
+  from event data &mdash; you need to know where the opponents were standing.</p>`;
 
-  h += `<div class="controls">
-    <span><span class="lbl">Side</span><span class="seg">` +
-    CAMPS.map(k => `<button data-set="camp" data-val="${k}" aria-pressed="${st.camp===k}">${CAMP_NAME[k]}</button>`).join('') +
+  // ---- per player ----
+  const rows = L.players.filter(r => r.campaign === st.camp)
+                        .sort((a, b) => b.per_pass - a.per_pass);
+  h += `<div class="controls"><span><span class="lbl">Squad</span><span class="seg">` +
+    CAMPS.map(k => `<button data-set="lcamp" data-val="${k}" aria-pressed="${st.camp===k}">${CAMP_NAME[k]}</button>`).join('') +
+    `</span></span></div>
+  <div class="grid g2"><div class="card"><h3 style="margin-top:0">Opponents beaten per forward pass</h3>
+    ${hbars(rows.map(r => [`${r.name} (${r.role})`, r.per_pass, r.role === 'CB' || r.role === 'GK',
+                           `over ${r.passes} passes`]), '')}
+    <p class="cap">Orange marks centre backs and goalkeepers, who play forward from deeper and
+    into more space. The spread is the point: the midfielders at the top beat roughly twice as
+    many opponents with each forward pass as the centre backs at the bottom.</p></div>
+  <div class="card"><h3 style="margin-top:0">Of their forward passes, the share that&hellip;</h3>
+    <div class="scroll"><table><thead><tr><th>Player</th><th>Beat 3+</th><th>Beat nobody</th>
+      <th>Were in a move that ended in a shot</th></tr></thead><tbody>` +
+    rows.map(r => `<tr><td>${esc(r.name)} <span class="dim">${r.role}</span></td>
+      <td class="num">${nf(r.break3_pct,0)}%</td>
+      <td class="num dim">${nf(100-r.break_pct,0)}%</td>
+      <td class="num">${nf(r.to_shot_pct,0)}%</td></tr>`).join('') +
+    `</tbody></table></div>
+    <p class="cap">The last column is a different question from the first and the two do not
+    move together: the player who beats most opponents is not always the one whose passes end
+    up producing shots.</p></div></div>`;
+
+  // ---- the real moments ----
+  const pool = L.moments.filter(m => m.campaign === st.camp)
+                        .filter(m => st.zone === 'all' || m.zone === st.zone);
+  const idx = Math.min(st.moment, Math.max(0, pool.length - 1));
+  const mo = pool[idx];
+
+  h += `<h2>See it happen</h2>
+  <p class="lede">The same passes, as they actually were. Every dot is a real player in a real
+  freeze frame, at the moment the ball was played &mdash; not an average, not an estimate.</p>
+  <div class="controls">
+    <span><span class="lbl">Pass started</span><span class="seg">` +
+    [['all','Anywhere'],['own half','Own half'],['middle third','Middle third'],['final third','Final third']]
+      .map(([k,lab]) => `<button data-set="lzone" data-val="${k}" aria-pressed="${st.zone===k}">${lab}</button>`).join('') +
     `</span></span>
-    <span><span class="lbl">Phase</span><span class="seg">
-      <button data-set="phase" data-val="in_possession" aria-pressed="${st.phase==='in_possession'}">Australia on the ball</button>
-      <button data-set="phase" data-val="out_of_possession" aria-pressed="${st.phase==='out_of_possession'}">Australia defending</button>
-    </span></span>
-    <span><span class="lbl">Layer</span><span class="seg">
-      <button data-set="layer" data-val="diff" aria-pressed="${st.layer==='diff'}">Who outnumbers whom</button>
-      <button data-set="layer" data-val="own" aria-pressed="${st.layer==='own'}">Team on the ball</button>
-      <button data-set="layer" data-val="opp" aria-pressed="${st.layer==='opp'}">Team defending</button>
-    </span></span>
+    <span class="seg">
+      <button data-set="lmove" data-val="-1">&larr; Previous</button>
+      <button data-set="lmove" data-val="1">Next &rarr;</button>
+    </span>
+    <span class="dim num">${pool.length ? idx + 1 : 0} of ${pool.length}</span>
   </div>`;
 
-  // zone picker
-  h += `<div class="grid g2"><div>
-    <h3>Where the ball was</h3><div class="zsel">`;
-  for (let r = 0; r < zones.rows; r++) {
-    for (let col = 0; col < zones.cols; col++) {
-      const z = r * zones.cols + col;
-      const n = blk.frames[z], live = !!blk.grids[z];
-      h += `<button data-set="zone" data-val="${z}" aria-pressed="${st.zone===z}" ${live?'':'disabled'}
-        title="Ball ${zoneWords(z)} &mdash; ${n} real moments">${zoneLabel(z)}<br><span class="num" style="font-weight:400;font-size:9.5px">${n}</span></button>`;
-    }
-  }
-  h += `</div><p class="cap">This grid <b>is</b> the pitch, attacking left to right: the left
-  column is their own goal, the right column the goal they attack, and the three rows are the
-  left channel, the middle and the right channel. So <b>C2</b> is centrally, in their own
-  build-up area. The small number is how many real moments that square is built from; a square
-  with fewer than ${S.thresholds.min_frames_zone} is greyed out rather than drawn.</p></div>`;
-
-  // metrics for the selected zone
-  const M = blk.metrics, z = st.zone;
-  const rows = [
-    ['Distance from the ball to the nearest opponent', M.nearest_opponent_m?.[z], ' m'],
-    ['Share of moments with an opponent inside 5 m', M.pressed_within_5m?.[z], '%'],
-    ['Opponents within 10 m of the ball', M.opponents_within_10m?.[z], ''],
-    ['Team-mates within 10 m of the ball', M.support_within_10m?.[z], ''],
-    ['Opponents ahead of the ball', M.opponents_ahead_of_ball?.[z], ''],
-    ['Team-mates ahead of the ball', M.teammates_ahead_of_ball?.[z], ''],
-    ['Players visible in the frame, of 22', M.visible_players?.[z], ''],
-  ];
-  h += `<div><h3>With the ball ${esc(zoneWords(z))}</h3>
-    <table><tbody>` +
-    rows.map(([k, v, u]) => `<tr><td>${k}</td><td class="num">${v===null||v===undefined?'&ndash;':nf(v,2)+u}</td></tr>`).join('') +
-    `</tbody></table>
-    <p class="cap">A dash means the measurement was refused, not that it is zero.
-    <b>Ahead of the ball</b> is only counted when the camera actually covered the space
-    between the ball and the goal it was attacking &mdash; tested per frame against the
-    broadcast visible-area polygon.</p></div></div>`;
-
-  // density pitch
-  const g = blk.grids[z];
-  let cells = '';
-  if (g) {
-    const cw = PW / grid.cols, ch = PH / grid.rows;
-    let peak = 0;
-    for (let i = 0; i < g.own.length; i++) {
-      for (const v of [g.own[i], g.opp[i]]) if (v !== null) peak = Math.max(peak, v);
-    }
-    const peakDiff = Math.max(...g.own.map((v,i) => (v===null||g.opp[i]===null)?0:Math.abs(v-g.opp[i])), 0.01);
-    for (let i = 0; i < g.own.length; i++) {
-      const col = Math.floor(i / grid.rows), row = i % grid.rows;
-      const x = col * cw, y = row * ch;
-      const own = g.own[i], opp = g.opp[i];
-      let fill = 'none', op = 0;
-      if (own === null || opp === null) {
-        cells += `<rect x="${x}" y="${y}" width="${cw}" height="${ch}" fill="url(#hatch)" opacity="0.5"/>`;
-        continue;
-      }
-      if (st.layer === 'own') { fill = 'var(--turf)'; op = Math.min(1, own / (peak||1)) * 0.86; }
-      else if (st.layer === 'opp') { fill = 'var(--chalk)'; op = Math.min(1, opp / (peak||1)) * 0.86; }
-      else {
-        const d = own - opp;
-        fill = d >= 0 ? 'var(--turf)' : 'var(--chalk)';
-        op = Math.min(1, Math.abs(d) / peakDiff) * 0.86;
-      }
-      cells += `<rect x="${x}" y="${y}" width="${cw}" height="${ch}" fill="${fill}" opacity="${op.toFixed(3)}"/>`;
-    }
-    // outline the selected ball zone, and say on the pitch what the box is
-    const zw = PW / zones.cols, zh = PH / zones.rows;
-    const zc = z % zones.cols, zr = Math.floor(z / zones.cols);
-    cells += `<rect x="${zc*zw}" y="${zr*zh}" width="${zw}" height="${zh}" fill="none"
-      stroke="var(--gold)" stroke-width="0.8" stroke-dasharray="2 1.5"/>
-      <text x="${zc*zw + zw/2}" y="${zr*zh + zh/2 + 1}" text-anchor="middle"
-        style="font-size:3.4px;font-weight:700" fill="var(--gold)">BALL HERE</text>`;
-  }
-  const defs = `<defs><pattern id="hatch" width="3" height="3" patternUnits="userSpaceOnUse"
-    patternTransform="rotate(45)"><line x1="0" y1="0" x2="0" y2="3" stroke="var(--pitch-line)" stroke-width="0.6"/></pattern></defs>`;
-
-  const onBall = st.phase === 'in_possession' ? CAMP_NAME[st.camp] : camp.phases ? 'the opponent' : '';
-  const defending = st.phase === 'in_possession' ? 'the opponent' : CAMP_NAME[st.camp];
-  const layerKey = st.layer === 'own'
-    ? `<span class="key"><i style="background:var(--turf)"></i>Darker green = more <b>${esc(onBall)}</b> players stood there</span>`
-    : st.layer === 'opp'
-    ? `<span class="key"><i style="background:var(--chalk)"></i>Darker orange = more <b>${esc(defending)}</b> players stood there</span>`
-    : `<span class="key"><i style="background:var(--turf)"></i>Green = <b>${esc(onBall)}</b> outnumbered ${esc(defending)} in that square</span>
-       <span class="key"><i style="background:var(--chalk)"></i>Orange = <b>${esc(defending)}</b> outnumbered ${esc(onBall)}</span>`;
-
-  h += `<h3 style="margin-top:26px">Ball ${esc(zoneWords(z))} &mdash; where everyone else stood</h3>
-  <p class="lede" style="margin-bottom:10px">${shapeVerdict(M, z, onBall)}
-  <span class="dim">Measured over ${blk.frames[z]} real moments.</span></p>
-  <div class="card" style="padding:12px">
-    <div class="keys">${layerKey}
-      <span class="key"><i class="gold"></i>Gold box = where the ball was</span>
-      <span class="key"><i class="hatched"></i>Hatched = the camera did not cover it</span>
+  if (!mo) {
+    h += `<p class="cap">No moment in this campaign started there.</p>`;
+  } else {
+    h += `<div class="card" style="padding:12px">
+      <div class="keys">
+        <span class="key"><i style="background:var(--turf)"></i>${esc(CAMP_NAME[st.camp])}</span>
+        <span class="key"><i style="background:var(--chalk)"></i>Opponent</span>
+        <span class="key"><i class="ringed"></i>Opponent the ball went past</span>
+        <span class="key"><i class="dashline"></i>The pass</span>
+        <span class="key"><i class="corridor"></i>The ${P.corridor_m} m corridor the count uses</span>
+      </div>
+      ${pitchSvg(1180, 540, momentSvg(mo))}
+      <div class="moment">
+        <div class="mtitle">${esc(mo.passer)} &rarr; ${esc(mo.receiver || 'a team-mate')}
+          <span class="dim">&middot; ${mo.minute}' v ${esc(mo.opponent)}</span></div>
+        <div class="mline"><b>${mo.bypassed} opponents</b> were between the ball and where it
+        landed, inside the corridor. ${mo.led_to_shot
+          ? 'This move ended in a shot.' : 'This move did not produce a shot.'}
+        <span class="dim">${mo.visible} of 22 players were on camera.</span></div>
+      </div>
     </div>
-    ${pitchSvg(1180, 520, defs + cells)}
-  </div>
-  <p class="cap"><b>How to read it.</b> Each square is 10 m by 10 m. The shading is how many
-  players stood in that square at the moment of a touch, averaged over all
-  ${blk.frames[z]} moments with the ball in the gold box. The team is attacking left to right,
-  so the top of the image is their left. Hatched squares are refused rather than drawn: the
-  camera covered them in fewer than ${S.thresholds.min_vis_cell} of these moments, and a square
-  the camera never showed would otherwise read as "nobody stands here", which is a camera fact
-  rather than a football one.</p>
-  <p class="cap"><b>What not to read into it.</b> The camera follows the ball, so this is a
-  reliable picture of who was <i>around the ball</i> and not of the full team shape. The
-  sentence above is built only from distances measured around the ball for that reason.</p>`;
+    <p class="cap"><b>What you are looking at.</b> The team is attacking left to right. The
+    dashed line is the pass, the open circle where it was received, the ringed player the one
+    on the ball. Opponents with a white ring are the ones counted as beaten: their position
+    was between the ball's start and finish and within ${P.corridor_m} m of its line. A dashed
+    outline marks a goalkeeper.</p>
+    <p class="cap"><b>What it is not.</b> A 360 frame is a single snapshot at the moment of an
+    event, so nothing here is a tracked run &mdash; you are seeing where players stood when the
+    ball was played, not how they got there or where they went next. Only players inside the
+    broadcast camera's view are in the frame, so a beaten count is a count of <i>visible</i>
+    opponents and is an undercount.</p>`;
+  }
 
-  const q = camp.quality;
-  h += `<div class="note" style="margin-top:18px"><b>What this layer is honest about.</b>
-  A 360 frame holds only the players the broadcast camera could see &mdash; a median of
-  ${(q.visible_players/q.visible_frames).toFixed(1)} of 22 in this campaign. Frames keyed to
-  secondary events (ball receipts, duels, dispossessions) are captured at the related primary
-  action rather than the event they are attached to, so every frame is checked first: the player
-  on the ball must be standing on the event, within ${S.thresholds.actor_tol_m} m.
-  ${q.frames_aligned.toLocaleString()} of ${q.frames_primary.toLocaleString()} frames on primary
-  on-ball actions passed that check; ${q.frames_used.toLocaleString()} open-play frames are used here.
-  Block height and block width are deliberately not computed anywhere on this board: the camera
-  follows the ball, so any average of visible defenders' positions measures where the camera
-  pointed as much as where the defence stood.</div>`;
+  // ---- how much time they got on the ball ----
+  const camp = S.campaigns[st.camp];
+  const blk = camp.phases.in_possession;
+  const M = blk.metrics, zones = S.zones;
+  const live = [];
+  for (let z = 0; z < zones.cols * zones.rows; z++) {
+    if (M.nearest_opponent_m?.[z] === null || M.nearest_opponent_m?.[z] === undefined) continue;
+    live.push([z, M.nearest_opponent_m[z], M.pressed_within_5m[z], blk.frames[z]]);
+  }
+  live.sort((a, b) => b[1] - a[1]);
+  const most = live[0], least = live[live.length - 1];
+
+  h += `<h2>Where they were allowed to play</h2>
+  <p class="lede">A second thing only positional data can answer: with the ball in each part of
+  the pitch, how close the nearest opponent actually was. This is not about shape, so the
+  camera following the ball does not distort it.</p>`;
+  if (most && least) {
+    h += `<p class="lede"><b>${esc(CAMP_NAME[st.camp])} were given most room ${esc(zoneWords(most[0]))}</b>
+    &mdash; nearest opponent a median ${nf(most[1],1)} m, with somebody inside five metres only
+    ${nf(most[2],0)}% of the time. They had least ${esc(zoneWords(least[0]))}, at
+    ${nf(least[1],1)} m and ${nf(least[2],0)}%.</p>`;
+  }
+  h += `<div class="scroll"><table><thead><tr><th>Ball here</th>
+    <th>Nearest opponent</th><th>Somebody inside 5 m</th>
+    <th>Team-mates within 10 m</th><th>Moments</th></tr></thead><tbody>` +
+    live.map(([z, d, p, n]) => `<tr><td>${esc(zoneWords(z))}</td>
+      <td class="num">${nf(d,1)} m</td><td class="num">${nf(p,0)}%</td>
+      <td class="num">${nf(M.support_within_10m[z],1)}</td>
+      <td class="num dim">${n}</td></tr>`).join('') +
+    `</tbody></table></div>
+  <p class="cap">Australia in possession only. A part of the pitch with fewer than
+  ${S.thresholds.min_frames_zone} moments is left out rather than shown thinly.</p>`;
 
   $('#p-shape').innerHTML = h;
 }
@@ -762,7 +748,7 @@ function renderPathway() {
 }
 
 /* ----------------------------------------------------------------- wiring -- */
-const RENDER = { campaigns:renderCampaigns, shape:renderShape, compare:renderCompare,
+const RENDER = { campaigns:renderCampaigns, shape:renderLines, compare:renderCompare,
                  players:renderPlayers, pathway:renderPathway };
 
 document.addEventListener('click', ev => {
@@ -776,17 +762,15 @@ document.addEventListener('click', ev => {
   const btn = ev.target.closest('[data-set]');
   if (btn && !btn.disabled) {
     const k = btn.dataset.set, v = btn.dataset.val;
-    if (k === 'zone') { shapeState.zone = Number(v); renderShape(); }
-    else if (k === 'camp' || k === 'phase' || k === 'layer') {
-      shapeState[k] = v;
-      if (k === 'camp' || k === 'phase') {
-        const blk = DATA.shape360.campaigns[shapeState.camp].phases[shapeState.phase];
-        if (!blk.grids[shapeState.zone]) {
-          const first = blk.grids.findIndex(Boolean);
-          if (first >= 0) shapeState.zone = first;
-        }
+    if (k === 'lcamp') { linesState.camp = v; linesState.moment = 0; renderLines(); }
+    else if (k === 'lzone') { linesState.zone = v; linesState.moment = 0; renderLines(); }
+    else if (k === 'lmove') {
+      const pool = DATA.linebreak.moments.filter(m => m.campaign === linesState.camp)
+        .filter(m => linesState.zone === 'all' || m.zone === linesState.zone);
+      if (pool.length) {
+        linesState.moment = (linesState.moment + Number(v) + pool.length) % pool.length;
+        renderLines();
       }
-      renderShape();
     }
     else if (k === 'pcamp') { playerState.camp = v; renderPlayers(); }
     else if (k === 'pathcomp') { pathState.comp = v; renderPathway(); }

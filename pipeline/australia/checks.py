@@ -205,6 +205,48 @@ def check_pathway() -> None:
                   f"{r['minutes']} minutes across {r['apps']} appearances")
 
 
+def check_linebreak() -> None:
+    d = load("linebreak")
+    P = d["params"]
+    for r in d["players"]:
+        tag = f"{r['campaign']}/{r['name']}"
+        check(f"linebreak/floor/{tag}", r["passes"] >= P["min_passes"],
+              f"{r['passes']} below the published floor")
+        # The mean cannot exceed the count of opponents it is drawn from, and a
+        # player who never beat anybody cannot have a positive mean.
+        check(f"linebreak/mean/{tag}",
+              abs(r["per_pass"] - r["bypassed"] / r["passes"]) < 0.02,
+              f"{r['per_pass']} vs {r['bypassed']}/{r['passes']}")
+        check(f"linebreak/pct-range/{tag}",
+              all(0 <= r[k] <= 100 for k in ("break_pct", "break3_pct", "to_shot_pct")))
+        # Beating three or more is a subset of beating one or more.
+        check(f"linebreak/subset/{tag}", r["break3_pct"] <= r["break_pct"] + TOL,
+              f"3+ {r['break3_pct']}% > any {r['break_pct']}%")
+        check(f"linebreak/per90/{tag}", r["per90"] is None or r["per90"] >= 0)
+
+    for i, m in enumerate(d["moments"]):
+        tag = f"{m['campaign']}/{i}"
+        flagged = [q for q in m["players"] if q["b"]]
+        # The drawn rings come from the per-player flags, so the headline count
+        # and the flags must agree or the picture contradicts its own caption.
+        check(f"linebreak/moment-count/{tag}", len(flagged) == m["bypassed"],
+              f"{len(flagged)} flagged vs bypassed {m['bypassed']}")
+        check(f"linebreak/moment-forward/{tag}",
+              m["end"][0] - m["start"][0] >= P["min_forward_m"] - TOL,
+              f"{m['start']} -> {m['end']} is not a forward pass")
+        check(f"linebreak/moment-actor/{tag}",
+              sum(q["a"] for q in m["players"]) == 1, "exactly one player on the ball")
+        check(f"linebreak/moment-visible/{tag}",
+              sum(1 for q in m["players"] if not q["t"]) >= P["min_visible_opponents"])
+        for q in flagged:
+            # Every ringed opponent must satisfy the stated definition.
+            check(f"linebreak/moment-rule/{tag}", q["t"] == 0 and q["k"] == 0,
+                  "a team-mate or keeper was marked as beaten")
+            check(f"linebreak/moment-between/{tag}",
+                  m["start"][0] < q["x"] < m["end"][0],
+                  f"beaten player at x={q['x']} is not between {m['start'][0]} and {m['end'][0]}")
+
+
 def check_helpers() -> None:
     """Pure-function tests. These need no data and guard the geometry."""
     square = [10, 10, 30, 10, 30, 30, 10, 30, 10, 10]
@@ -223,7 +265,7 @@ def check_helpers() -> None:
 
 def main() -> int:
     for fn in (check_campaigns, check_players, check_shape, check_compare,
-               check_pathway, check_helpers):
+               check_pathway, check_linebreak, check_helpers):
         try:
             fn()
         except Exception as exc:                                  # noqa: BLE001

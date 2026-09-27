@@ -15,6 +15,7 @@ python fetch.py        # ~102 MB of StatsBomb open data into data/ (not committe
 python campaigns.py    # match and campaign profiles, event data only
 python shape360.py     # measured off-ball shape by ball zone
 python compare.py      # event-only estimates scored against measured positions
+python linebreak.py    # opponents bypassed per forward pass, plus real moments
 python players.py      # every Australian who played, with 360 context
 python pathway.py      # A-League minutes by age and nationality (FBref)
 python build_board.py  # renders output/australia_board.html from the JSON above
