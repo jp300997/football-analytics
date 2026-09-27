@@ -217,11 +217,16 @@ def check_linebreak() -> None:
         check(f"linebreak/mean/{tag}",
               abs(r["per_pass"] - r["bypassed"] / r["passes"]) < 0.02,
               f"{r['per_pass']} vs {r['bypassed']}/{r['passes']}")
-        check(f"linebreak/pct-range/{tag}",
-              all(0 <= r[k] <= 100 for k in ("break_pct", "break3_pct", "to_shot_pct")))
-        # Beating three or more is a subset of beating one or more.
-        check(f"linebreak/subset/{tag}", r["break3_pct"] <= r["break_pct"] + TOL,
-              f"3+ {r['break3_pct']}% > any {r['break_pct']}%")
+        check(f"linebreak/pct-range/{tag}", 0 <= r["break3_pct"] <= 100)
+        # break_pct and to_shot_pct were retired: the first was saturated at
+        # 94-100% and so discriminated nothing, the second was +/-19pp at n=25.
+        check(f"linebreak/retired/{tag}",
+              "break_pct" not in r and "to_shot_pct" not in r,
+              "a retired metric reappeared in the output")
+        # The bootstrap interval must bracket the point estimate.
+        check(f"linebreak/interval/{tag}",
+              r["per_pass_lo"] <= r["per_pass"] <= r["per_pass_hi"],
+              f"{r['per_pass_lo']} <= {r['per_pass']} <= {r['per_pass_hi']}")
         check(f"linebreak/per90/{tag}", r["per90"] is None or r["per90"] >= 0)
 
     for i, m in enumerate(d["moments"]):
@@ -247,6 +252,51 @@ def check_linebreak() -> None:
                   f"beaten player at x={q['x']} is not between {m['start'][0]} and {m['end'][0]}")
 
 
+def check_profile() -> None:
+    """Invariants for the shrinkage and SWOT layer."""
+    d = load("profile_board")
+    for rec in d["australia"]:
+        tag = f"{rec['campaign']}/{rec['player']}"
+        for m, v in rec["metrics"].items():
+            # A posterior mean must sit inside its own interval, and the interval
+            # must be ordered. A violation means the wrong distribution was used.
+            check(f"profile/interval/{tag}/{m}", v["lo"] <= v["mean"] <= v["hi"],
+                  f"{v['lo']} <= {v['mean']} <= {v['hi']}")
+            check(f"profile/R-range/{tag}/{m}", 0 <= v["R"] <= 1, str(v["R"]))
+            check(f"profile/pct-range/{tag}/{m}",
+                  v["pct"] is None or 0 <= v["pct"] <= 100, str(v["pct"]))
+            L = rec["labels"].get(m)
+            if L:
+                # Shrinkage always pulls toward the prior, so the posterior can
+                # never sit further from the field average than the raw value.
+                raw = v["num"] / v["den"] if v["den"] else None
+                if raw is not None:
+                    check(f"profile/shrinks-inward/{tag}/{m}",
+                          abs(v["mean"] - L["mu_pop"]) <= abs(raw - L["mu_pop"]) + 1e-6,
+                          f"posterior {v['mean']} further from {L['mu_pop']} than raw {raw}")
+                # No label above LEAN may be given below the reliability floor.
+                check(f"profile/label-gate/{tag}/{m}",
+                      L["label"] not in ("STRENGTH", "WEAKNESS") or L["R"] >= d["r_min"],
+                      f"{L['label']} at R={L['R']}")
+        for name, v in rec.get("composites", {}).items():
+            check(f"profile/comp-interval/{tag}/{name}", v["lo"] <= v["z"] <= v["hi"])
+            check(f"profile/comp-prob/{tag}/{name}",
+                  0 <= v["p_good"] <= 1 and 0 <= v["p_bad"] <= 1)
+            check(f"profile/comp-exclusive/{tag}/{name}", v["p_good"] + v["p_bad"] <= 1.0 + 1e-6,
+                  "a value cannot be both above and below the field by the same margin")
+            check(f"profile/comp-gate/{tag}/{name}",
+                  v["label"] not in ("STRENGTH", "WEAKNESS") or v["R"] >= d["r_min"])
+    for rec in d["team_australia"]:
+        for name, v in rec["composites"].items():
+            check(f"profile/team-interval/{rec['campaign']}/{name}", v["lo"] <= v["z"] <= v["hi"])
+    # the gate itself: a metric with no signal must carry no prior weight
+    for m, blk in d["reliability"].items():
+        a = blk.get("all")
+        if a and a.get("split_half_r") is not None and a["split_half_r"] <= 0.05:
+            check(f"profile/no-signal/{m}", a["n0"] is None,
+                  "a metric with no split-half signal must be refused, not shrunk")
+
+
 def check_helpers() -> None:
     """Pure-function tests. These need no data and guard the geometry."""
     square = [10, 10, 30, 10, 30, 30, 10, 30, 10, 10]
@@ -265,7 +315,7 @@ def check_helpers() -> None:
 
 def main() -> int:
     for fn in (check_campaigns, check_players, check_shape, check_compare,
-               check_pathway, check_linebreak, check_helpers):
+               check_pathway, check_linebreak, check_profile, check_helpers):
         try:
             fn()
         except Exception as exc:                                  # noqa: BLE001

@@ -307,6 +307,7 @@
         <p>The other boards here have no positional data at all, so this one is used for two things. First, to measure something event data cannot reach: for every completed forward pass, <b>how many opponents the ball actually went past</b>. A square ball in front of the block beats nobody, a ten-yard pass through midfield can beat three, and that difference is the whole of what a coach means by breaking lines. Australia's midfielders beat roughly twice as many opponents per forward pass as their centre backs. The passes are then shown as real freeze frames, every player where they actually stood. Second, to put an error bar on every positional claim the other boards make.</p>
         <p>That second use is the point. Scored against measured truth, an event-only position estimate is accurate to about 5.7 m for the player on the ball &mdash; 4.3 m when the estimate is only a few seconds old, degrading to 27 m once it is reaching a minute. For off-ball players it is 21 m at best, against 29 m for assuming all eleven stand on the centre spot. Positional data is not a nicer version of event data. It answers a question event data cannot reach, and this board says so with a number.</p>
         <ul class="views">
+          <li><b>Strengths and weaknesses.</b> Every player and both squads scored against the 128-match tournament field, shrunk to a prior and labelled &mdash; because eleven matches cannot measure a player, only update a prior.</li>
           <li><b>Campaigns.</b> Both tournaments match by match, with real formation events and in-match shifts, reconciled to the real scorelines.</li>
           <li><b>Breaking lines.</b> For every completed forward pass, how many opponents the ball went past &mdash; then the same passes drawn as real freeze frames, every player where they actually stood.</li>
           <li><b>Event data vs 360.</b> Positional estimate error, what the <code>under_pressure</code> flag is worth in metres, and whether a pass went into space.</li>
@@ -321,6 +322,7 @@
           <dt>Validation</dt><dd>Frames keyed to secondary events are captured at the related primary action, so every frame is gated on the player on the ball standing on the event</dd>
           <dt>Camera</dt><dd>A frame holds a median 13 of 22 players; every measurement is refused where the broadcast visible-area polygon did not cover the region it depends on</dd>
           <dt>Method</dt><dd>Leave-one-out for identity-true error; minimum-cost assignment for the off-ball set, reported as a lower bound</dd>
+          <dt>Inference</dt><dd>Empirical-Bayes shrinkage toward the 128-match field, with the publication gate set by the worse of a moment estimate and a split-half correlation</dd>
         </dl>
         <p class="note">Block height and block width are not computed anywhere on this board. The camera follows the ball, so any average of visible defenders' positions measures where the camera pointed as much as where the defence stood.</p>
       </aside>
@@ -413,6 +415,7 @@
           <li><b>What has changed.</b> Style shifts league-wide: 9 real changes so far, 42 to watch. <a href="boards/changes.html">Open</a></li>
           <li><b>Context.</b> Schedule, rotation, game states and substitutions &mdash; including a no-result: no rest effect we can measure. <a href="boards/context.html">Open</a></li>
           <li><b>Meeting pack.</b> A one-page coach brief and a five-slide player pack per side, generated as PDFs. <a href="packs/2026-10-10_Arsenal_v_Leeds_home_brief.pdf">Sample brief</a> &middot; <a href="packs/2026-10-10_Arsenal_v_Leeds_home_pack.pdf">Sample pack</a></li>
+          <li><b>Strengths and weaknesses.</b> Every club and player scored against the population and labelled, with the same five states and colours as the Australia board. <a href="boards/swot.html">Open</a></li>
           <li><b>Does it work.</b> The advice itself, tested against what happened: 5 of 9 kinds beat a naive baseline last season, and the two that did not are named as unproven. <a href="boards/backtest.html">Open</a></li>
         </ul>
       </div>

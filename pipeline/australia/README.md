@@ -11,16 +11,27 @@ measured error bar on every positional estimate the other boards make.
 ## Running it
 
 ```bash
-python fetch.py        # ~102 MB of StatsBomb open data into data/ (not committed)
-python campaigns.py    # match and campaign profiles, event data only
-python shape360.py     # measured off-ball shape by ball zone
-python compare.py      # event-only estimates scored against measured positions
-python linebreak.py    # opponents bypassed per forward pass, plus real moments
-python players.py      # every Australian who played, with 360 context
-python pathway.py      # A-League minutes by age and nationality (FBref)
-python build_board.py  # renders output/australia_board.html from the JSON above
-python checks.py       # 997 invariants over the outputs; no data/ needed
+python fetch.py              # ~102 MB of StatsBomb open data into data/ (not committed)
+python fetch_population.py   # both tournaments in full, 128 matches, ~382 MB (not committed)
+
+python campaigns.py          # match and campaign profiles, event data only
+python shape360.py           # measured off-ball shape by ball zone
+python compare.py            # event-only estimates scored against measured positions
+python players.py            # every Australian who played, with 360 context
+python linebreak.py          # opponents bypassed per forward pass, plus real moments
+python pathway.py            # A-League minutes by age and nationality (FBref)
+
+python population.py         # per-player-match records for the whole 128-match field
+python reliability.py        # how much football each metric needs before it means anything
+python profile.py            # shrunken player estimates and the five-state label
+python team_profile.py       # the same for the two squads; also writes the board payload
+
+python build_board.py        # renders output/australia_board.html from all of the above
+python checks.py             # 8,681 invariants over the outputs; no data/ needed
 ```
+
+Order matters in one place: `team_profile.py` writes the slimmed payload the board loads,
+so it must run before `build_board.py`.
 
 `checks.py` and `common.py` have no third-party dependencies. The analysis stages
 need `numpy`, `scipy` (one optimal-assignment call) and, for `pathway.py`,
@@ -105,6 +116,36 @@ Also measured: a touch flagged `under_pressure` has a nearest opponent at a medi
 opponent inside 5 m — so the flag means "somebody was closing", not "in space".
 Completed passes ended a median 12.5 m from the nearest opponent, incomplete ones
 6.7 m.
+
+## Small samples
+
+Eleven matches cannot measure a player; they can only update a prior. So nothing on the
+Strengths-and-weaknesses tab is a raw rate. Each metric is a posterior formed from the
+player's own evidence and the 128-match tournament field, weighted by `n0` - the prior's
+weight in that metric's own opportunity units, estimated on the population:
+
+    rate:        Gamma(mu*n0 + y, n0 + e)
+    proportion:  Beta(mu*n0 + k, (1-mu)*n0 + n - k)
+
+`n0` is taken as the more pessimistic of a method-of-moments estimate and one implied by a
+split-half correlation across the same players' own matches. Where they disagree the
+empirical number wins: dribble success came out at n0 = 29 attempts by moments and a
+split-half of 0.17, and shot-on-target share came out at -0.40, meaning no individual
+signal at all - it is refused rather than shrunk.
+
+Two design choices make the chart usable rather than a field of shrugs:
+
+* **Five states, not four.** TYPICAL ("measured, and ordinary") is separated from CANNOT
+  TELL ("not enough football"). Rendering those the same grey is what makes small-sample
+  charts useless. On this data 1% of cells are CANNOT TELL.
+* **Opportunity denominators, not per 90.** Australia had 38% of the ball at WC 2022, so
+  per-90 volumes measured possession share: the first build returned 43 weaknesses against
+  10 strengths for sides that reached a semi-final and a round of 16. Attacking volume is
+  now per 100 of the team's own on-ball events, defensive volume per 100 of the opponent's.
+
+The same code runs the club board (`../club_profile.py`, 732 matches, 773 players), where
+the evidence is thick enough that the prior barely bites - which is the contrast the two
+boards exist to show.
 
 ## Checks
 

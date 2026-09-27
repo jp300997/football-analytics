@@ -187,14 +187,32 @@ def _hms(s: str) -> float:
     return parts[0] * 60 + parts[1] + parts[2] / 60.0
 
 
-def full_time(match_id: int) -> float:
+POP = DATA / "population"
+
+
+def pop_index() -> dict:
+    return json.loads((POP / "index.json").read_text(encoding="utf-8"))
+
+
+def pop_events(match_id: int) -> list[dict]:
+    return json.loads((POP / "events" / f"{match_id}.json").read_text(encoding="utf-8"))
+
+
+def pop_lineups(match_id: int) -> list[dict]:
+    return json.loads((POP / "lineups" / f"{match_id}.json").read_text(encoding="utf-8"))
+
+
+def full_time_of(ev: list[dict]) -> float:
     """Match length in minutes, excluding a penalty shootout (period 5)."""
-    ends = [mins(e) for e in events(match_id)
-            if e["type"]["name"] == "Half End" and e["period"] <= 4]
+    ends = [mins(e) for e in ev if e["type"]["name"] == "Half End" and e["period"] <= 4]
     return max(ends) if ends else 90.0
 
 
-def on_pitch_intervals(match_id: int, team: str) -> dict[int, list[tuple[float, float]]]:
+def full_time(match_id: int) -> float:
+    return full_time_of(events(match_id))
+
+
+def on_pitch_of(ev: list[dict], team: str) -> dict[int, list[tuple[float, float]]]:
     """When each player was actually on the pitch, from the event stream.
 
     The lineup file's position rows cannot be summed: a Tactical Shift opens a
@@ -204,7 +222,7 @@ def on_pitch_intervals(match_id: int, team: str) -> dict[int, list[tuple[float, 
     Starting XI / Substitution / Player Off / Player On events are authoritative,
     so on-pitch time is derived from those instead.
     """
-    ft = full_time(match_id)
+    ft = full_time_of(ev)
     open_at: dict[int, float] = {}
     spans: dict[int, list[tuple[float, float]]] = {}
 
@@ -216,7 +234,7 @@ def on_pitch_intervals(match_id: int, team: str) -> dict[int, list[tuple[float, 
         if pid in open_at:
             spans.setdefault(pid, []).append((open_at.pop(pid), min(t, ft)))
 
-    for e in events(match_id):
+    for e in ev:
         if e["team"]["name"] != team:
             continue
         kind = e["type"]["name"]
@@ -248,11 +266,15 @@ def _role_timeline(player: dict) -> list[tuple[float, str]]:
     return steps
 
 
-def minutes_played(match_id: int, team: str) -> dict[int, dict]:
-    """Per-player minutes and primary role for one team."""
-    spans = on_pitch_intervals(match_id, team)
+def on_pitch_intervals(match_id: int, team: str) -> dict[int, list[tuple[float, float]]]:
+    return on_pitch_of(events(match_id), team)
+
+
+def minutes_of(ev: list[dict], lu: list[dict], team: str) -> dict[int, dict]:
+    """Per-player minutes and primary role for one team, from events + line-ups."""
+    spans = on_pitch_of(ev, team)
     out: dict[int, dict] = {}
-    for t in lineups(match_id):
+    for t in lu:
         if t["team_name"] != team:
             continue
         for p in t["lineup"]:
@@ -282,6 +304,10 @@ def minutes_played(match_id: int, team: str) -> dict[int, dict]:
                 "started": any(pos["start_reason"] == "Starting XI" for pos in p["positions"]),
             }
     return out
+
+
+def minutes_played(match_id: int, team: str) -> dict[int, dict]:
+    return minutes_of(events(match_id), lineups(match_id), team)
 
 
 def write(name: str, payload) -> Path:

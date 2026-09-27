@@ -45,6 +45,7 @@ EXPECTED: dict[str, int] = {
     "boards/context.html": 100,
     "boards/pack.html": 100,
     "boards/backtest.html": 20,
+    "boards/swot.html": 1000,
     "tactics/opposition_board.html": 1000,
 }
 

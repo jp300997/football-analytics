@@ -36,6 +36,8 @@ from pathlib import Path
 
 import numpy as np
 
+RNG = np.random.default_rng(20260927)
+
 sys.path.insert(0, str(Path(__file__).parent))
 import common as c  # noqa: E402
 
@@ -64,7 +66,7 @@ def _perp_distance(p, a, b) -> float:
 
 def main() -> None:
     per_player: dict[tuple[str, int], dict] = defaultdict(
-        lambda: {"passes": 0, "bypassed": 0, "broke": 0, "broke3": 0, "to_shot": 0})
+        lambda: {"passes": 0, "bypassed": 0, "broke3": 0, "per_pass_vals": []})
     names: dict[tuple[str, int], dict] = {}
     minutes: dict[tuple[str, int], float] = defaultdict(float)
     candidates: list[dict] = []
@@ -123,10 +125,9 @@ def main() -> None:
             rec = per_player[key]
             rec["passes"] += 1
             rec["bypassed"] += len(beaten)
-            rec["broke"] += len(beaten) >= 1
             rec["broke3"] += len(beaten) >= 3
+            rec["per_pass_vals"].append(len(beaten))
             led = e["possession"] in shot_possessions
-            rec["to_shot"] += led
             stats["passes_scored"] += 1
 
             if len(beaten) >= 2:
@@ -160,6 +161,12 @@ def main() -> None:
         campaign, pid = key
         info = names[key]
         mins = minutes[key]
+        # An 80% interval by bootstrapping the player's own scored passes. A
+        # point estimate on 25-95 passes invites a ranking the sample cannot
+        # support; two players whose intervals overlap are not separated.
+        vals = np.asarray(rec["per_pass_vals"], dtype=float)
+        draws = vals[RNG.integers(0, vals.size, size=(2000, vals.size))].mean(axis=1)
+        lo, hi = np.percentile(draws, [10, 90])
         rows.append({
             "campaign": campaign,
             "player_id": pid,
@@ -169,10 +176,9 @@ def main() -> None:
             "passes": rec["passes"],
             "bypassed": rec["bypassed"],
             "per_pass": round(rec["bypassed"] / rec["passes"], 2),
+            "per_pass_lo": round(float(lo), 2), "per_pass_hi": round(float(hi), 2),
             "per90": round(90 * rec["bypassed"] / mins, 1) if mins else None,
-            "break_pct": round(100 * rec["broke"] / rec["passes"], 1),
             "break3_pct": round(100 * rec["broke3"] / rec["passes"], 1),
-            "to_shot_pct": round(100 * rec["to_shot"] / rec["passes"], 1),
         })
     rows.sort(key=lambda r: (r["campaign"], -r["per_pass"]))
 
@@ -213,11 +219,10 @@ def main() -> None:
     for campaign in ("matildas", "socceroos"):
         grp = [r for r in rows if r["campaign"] == campaign]
         print(f"\n{c.campaign_label(campaign)} - opponents bypassed per forward pass")
-        print(f"  {'player':26s} {'role':4s} {'passes':>6s} {'/pass':>6s} {'/90':>6s} "
-              f"{'break%':>7s} {'3+%':>6s} {'to shot%':>9s}")
+        print(f"  {'player':26s} {'role':4s} {'passes':>6s} {'/pass':>6s} {'80% interval':>16s} {'3+%':>6s}")
         for r in grp:
             print(f"  {r['name'][:26]:26s} {r['role']:4s} {r['passes']:6d} {r['per_pass']:6.2f} "
-                  f"{r['per90']:6.1f} {r['break_pct']:7.1f} {r['break3_pct']:6.1f} {r['to_shot_pct']:9.1f}")
+                  f"{f'[{r[chr(34)+chr(34)] if False else r['per_pass_lo']:.2f}, {r['per_pass_hi']:.2f}]':>16s} {r['break3_pct']:6.1f}")
 
 
 if __name__ == "__main__":
