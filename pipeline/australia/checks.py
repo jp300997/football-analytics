@@ -260,8 +260,11 @@ def check_profile() -> None:
         for m, v in rec["metrics"].items():
             # A posterior mean must sit inside its own interval, and the interval
             # must be ordered. A violation means the wrong distribution was used.
-            check(f"profile/interval/{tag}/{m}", v["lo"] <= v["mean"] <= v["hi"],
-                  f"{v['lo']} <= {v['mean']} <= {v['hi']}")
+            # The median must lie inside its own interval. The MEAN need not:
+            # for a strongly right-skewed posterior it can exceed the 90th
+            # percentile, which is why the board displays the median.
+            check(f"profile/interval/{tag}/{m}", v["lo"] <= v["median"] <= v["hi"],
+                  f"{v['lo']} <= {v['median']} <= {v['hi']}")
             check(f"profile/R-range/{tag}/{m}", 0 <= v["R"] <= 1, str(v["R"]))
             check(f"profile/pct-range/{tag}/{m}",
                   v["pct"] is None or 0 <= v["pct"] <= 100, str(v["pct"]))
@@ -297,6 +300,45 @@ def check_profile() -> None:
                   "a metric with no split-half signal must be refused, not shrunk")
 
 
+def check_insights() -> None:
+    """Derived claims must be traceable to something already published."""
+    d = load("profile_board")
+    names = {r["player"] for r in d["australia"]}
+    for camp, claims in (d.get("insights") or {}).items():
+        for i, cl in enumerate(claims):
+            tag = f"{camp}/{i}"
+            check(f"insights/kind/{tag}",
+                  cl["kind"] in ("DEPENDENCY", "ROUTE", "ENABLER", "EXPOSURE"), cl["kind"])
+            check(f"insights/evidence/{tag}", bool(cl["evidence"]),
+                  "a claim with no number behind it")
+            check(f"insights/so/{tag}", bool(cl["so"]))
+            # Every player a claim names must exist in the published profiles,
+            # otherwise the claim points at somebody the reader cannot check.
+            for n in cl["players"]:
+                check(f"insights/player/{tag}", n in names, f"unknown player {n}")
+            # No claim may assert a side; the role labels carry none.
+            check(f"insights/no-side/{tag}",
+                  not any(w in cl["headline"].lower() for w in (" left flank", " right flank")),
+                  "a claim asserted a side the data does not carry")
+
+
+def check_defs() -> None:
+    """Every published metric must have a definition a reader can open."""
+    d = load("profile_board")
+    defs = d.get("defs") or {}
+    seen = set()
+    for rec in d["australia"]:
+        seen.update(rec["metrics"].keys())
+    for m in sorted(seen):
+        check(f"defs/exists/{m}", m in defs, "published without a definition")
+        if m in defs:
+            for f in ("label", "means", "calc"):
+                check(f"defs/{f}/{m}", bool(defs[m][f]), f"empty {f}")
+    for name in d["composites"]:
+        check(f"defs/composite/{name}", name in (d.get("composite_defs") or {}),
+              "composite published without a definition")
+
+
 def check_helpers() -> None:
     """Pure-function tests. These need no data and guard the geometry."""
     square = [10, 10, 30, 10, 30, 30, 10, 30, 10, 10]
@@ -315,7 +357,8 @@ def check_helpers() -> None:
 
 def main() -> int:
     for fn in (check_campaigns, check_players, check_shape, check_compare,
-               check_pathway, check_linebreak, check_profile, check_helpers):
+               check_pathway, check_linebreak, check_profile, check_insights,
+               check_defs, check_helpers):
         try:
             fn()
         except Exception as exc:                                  # noqa: BLE001

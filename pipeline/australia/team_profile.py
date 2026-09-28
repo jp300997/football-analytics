@@ -21,6 +21,7 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).parent))
 import common as c  # noqa: E402
+from metric_defs import COMPOSITE_DEFS, DEFS  # noqa: E402
 from profile import (BOOT, DELTA, P_LEAN, P_STRONG, R_MIN, RNG, SD_TYPICAL,  # noqa: E402
                      AUS, _posterior)
 
@@ -204,6 +205,32 @@ def main() -> None:
                                   "prior": {k: {kk: vv for kk, vv in v.items()}
                                             for k, v in prior.items()},
                                   "teams": teams_out, "australia": aus})
+
+    # The board embeds a slimmed payload - Australia, the reliability gate, the
+    # metric dictionary and the derived claims - rather than all 1,299 population
+    # players. Written here so the published pipeline can rebuild everything the
+    # board loads instead of depending on a one-off script.
+    pr = json.loads((c.OUT / "profile.json").read_text(encoding="utf-8"))
+    rel_all = json.loads((c.OUT / "reliability.json").read_text(encoding="utf-8"))
+
+    def _opt(name: str):
+        p = c.OUT / name
+        return json.loads(p.read_text(encoding="utf-8")) if p.exists() else {}
+
+    c.write("profile_board.json", {
+        "delta": pr["delta"], "p_strong": pr["p_strong"], "p_lean": pr["p_lean"],
+        "r_min": pr["r_min"], "composites": pr["composites"],
+        "australia": pr["australia"],
+        "team_composites": TEAM_COMPOSITES, "team_australia": aus,
+        "defs": {k: {"label": v[0], "means": v[1], "calc": v[2], "caveat": v[3]}
+                 for k, v in DEFS.items()},
+        "composite_defs": COMPOSITE_DEFS,
+        "insights": _opt("insights.json"),
+        "xgot": _opt("xgot.json"),
+        "reliability": {m: {"kind": b["kind"], "unit": b.get("unit"),
+                            "all": b["by_group"].get("ALL")}
+                        for m, b in rel_all["metrics"].items()},
+    })
 
     print(f"\n{len(teams_out)} team-campaigns, {len(prior)} metrics with a usable prior")
     for rec in sorted(aus, key=lambda r: r["campaign"]):

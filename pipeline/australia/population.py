@@ -50,6 +50,10 @@ PAIRS = {
 # Which opportunity each volume metric is denominated by. ATT metrics scale with
 # your own team's time on the ball, DEF metrics with the opponent's.
 EXPOSURE = {
+    "switches": "team_onball", "passes_into_f3": "team_onball",
+    "carries_into_f3": "team_onball", "carries_into_box": "team_onball",
+    "fouls_won_f3": "team_onball", "touches_box": "team_onball",
+    "pre_assists": "team_onball",
     "passes": "team_onball", "passes_fwd": "team_onball", "passes_prog": "team_onball",
     "entries_f3": "team_onball", "entries_box": "team_onball", "crosses": "team_onball",
     "carries": "team_onball", "carries_prog": "team_onball", "dribbles": "team_onball",
@@ -60,7 +64,8 @@ EXPOSURE = {
     "interceptions": "opp_onball", "blocks": "opp_onball", "clearances": "opp_onball",
     "aerials": "opp_onball", "ground_duels": "opp_onball", "fouls_committed": "opp_onball",
 }
-COUNTS = ["passes", "passes_fwd", "passes_prog", "entries_f3", "entries_box",
+COUNTS = ["switches", "passes_into_f3", "carries_into_f3", "carries_into_box",
+          "fouls_won_f3", "touches_box", "pre_assists", "passes", "passes_fwd", "passes_prog", "entries_f3", "entries_box",
           "crosses", "carries", "carries_prog", "dribbles", "receptions",
           "receptions_pressed", "shots", "key_passes", "pressures", "counterpress",
           "aerials", "ground_duels", "interceptions", "blocks",
@@ -88,6 +93,8 @@ def player_match_rows(ev: list[dict], lu: list[dict], team: str, opponent: str,
         a = acc[pid]
         kind = e["type"]["name"]
         loc = e.get("location")
+        if loc and kind in ("Pass", "Carry", "Shot", "Ball Receipt*", "Dribble")                 and loc[0] >= BOX_X and BOX_Y0 <= loc[1] <= BOX_Y1:
+            a["touches_box"] += 1
 
         if kind == "Pass":
             p = e["pass"]
@@ -112,6 +119,13 @@ def player_match_rows(ev: list[dict], lu: list[dict], team: str, opponent: str,
             if p.get("cross"):
                 a["crosses"] += 1
                 a["crosses_ok"] += ok
+            # Switch of play: a completed pass moving the ball more than 30m
+            # across the pitch (the SB pitch is 80 wide), i.e. changing the side
+            # the attack is on rather than merely moving it.
+            if ok and abs(end[1] - loc[1]) >= 30.0:
+                a["switches"] += 1
+            if ok and end[0] >= FINAL_THIRD:
+                a["passes_into_f3"] += 1
             if p.get("shot_assist") or p.get("goal_assist"):
                 a["key_passes"] += 1
                 shot = by_id.get(p.get("assisted_shot_id"))
@@ -124,8 +138,16 @@ def player_match_rows(ev: list[dict], lu: list[dict], team: str, opponent: str,
                     a["receptions_pressed"] += 1
         elif kind == "Carry":
             a["carries"] += 1
-            if e["carry"]["end_location"][0] - loc[0] >= 5.0:
+            cend = e["carry"]["end_location"]
+            if cend[0] - loc[0] >= 5.0:
                 a["carries_prog"] += 1
+            # A carry that takes the ball INTO the final third or the box is the
+            # carrying counterpart of a line-breaking pass: the player, not the
+            # pass, is what beat the line.
+            if cend[0] >= FINAL_THIRD > loc[0]:
+                a["carries_into_f3"] += 1
+            if cend[0] >= BOX_X and BOX_Y0 <= cend[1] <= BOX_Y1 and loc[0] < BOX_X:
+                a["carries_into_box"] += 1
         elif kind == "Dribble":
             a["dribbles"] += 1
             a["dribbles_ok"] += e["dribble"]["outcome"]["name"] == "Complete"
@@ -164,8 +186,32 @@ def player_match_rows(ev: list[dict], lu: list[dict], team: str, opponent: str,
             a["miscontrol"] += 1
         elif kind == "Foul Won":
             a["fouls_won"] += 1
+            # A foul won high up is worth far more than one won in your own half:
+            # it stops a counter or wins a set piece in a scoring area.
+            if loc and loc[0] >= FINAL_THIRD:
+                a["fouls_won_f3"] += 1
         elif kind == "Foul Committed":
             a["fouls_committed"] += 1
+
+    # Pre-assist: the pass immediately before the one that created the shot.
+    # Walk back from each shot-assist to whoever passed to its passer.
+    idx_of = {e["id"]: i for i, e in enumerate(ev)}
+    for e in ev:
+        if e["period"] > 4 or e["type"]["name"] != "Pass" or e["team"]["name"] != team:
+            continue
+        p = e["pass"]
+        if not (p.get("shot_assist") or p.get("goal_assist")):
+            continue
+        i = idx_of[e["id"]]
+        for j in range(i - 1, max(-1, i - 8), -1):
+            prev = ev[j]
+            if (prev["type"]["name"] == "Pass" and prev["team"]["name"] == team
+                    and "outcome" not in prev["pass"]
+                    and (prev["pass"].get("recipient") or {}).get("id") == (e.get("player") or {}).get("id")):
+                q = (prev.get("player") or {}).get("id")
+                if q in acc:
+                    acc[q]["pre_assists"] += 1
+                break
 
     # Aerials are logged once per side, so a player's own aerials are the sum of
     # their Aerial Lost duels and the aerials they won, which arrive as the

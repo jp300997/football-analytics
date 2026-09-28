@@ -77,15 +77,26 @@ COMPOSITES = {
 }
 
 
-def _prior(rel: dict, metric: str, group: str) -> dict | None:
+def _prior(rel: dict, metric: str, role: str) -> dict | None:
+    """The finest reference class available: the role itself, then its broad
+    group, then the whole population. Comparing a centre back with centre backs
+    rather than with every outfielder is the difference between a percentile that
+    means something and one that mostly restates the position."""
     blk = rel["metrics"].get(metric)
     if not blk:
         return None
-    g = blk["by_group"].get(group) or blk["by_group"].get("ALL")
+    g = None
+    for key in (role, GROUP_OF.get(role, "MID"), "ALL"):
+        cand = blk["by_group"].get(key)
+        if cand and cand["n0"] is not None:
+            g = cand
+            g = {**g, "ref": key}
+            break
     if not g or g["n0"] is None:
         return None
     return {"mu": g["mu"], "n0": g["n0"], "kind": blk["kind"],
-            "split_half_r": g["split_half_r"], "basis": g["n0_basis"]}
+            "split_half_r": g["split_half_r"], "basis": g["n0_basis"],
+            "ref": g.get("ref", "ALL")}
 
 
 def _posterior(pr: dict, num: float, den: float) -> dict:
@@ -100,7 +111,13 @@ def _posterior(pr: dict, num: float, den: float) -> dict:
         dist = stats.gamma(a, scale=1.0 / rate)
         sd_pop = float(np.sqrt(mu / n0))
     lo, hi = dist.ppf(0.10), dist.ppf(0.90)
-    return {"mean": float(dist.mean()), "sd": float(dist.std()),
+    # The MEDIAN is what the board shows. For a heavily right-skewed posterior -
+    # a goalkeeper's key passes give a Gamma with shape well under 1 - the mean
+    # can legitimately sit above the 90th percentile, which would print a value
+    # outside its own stated interval. The mean is kept for the z-score so the
+    # shrinkage arithmetic is unchanged.
+    return {"mean": float(dist.mean()), "median": float(dist.ppf(0.5)),
+            "sd": float(dist.std()),
             "lo": float(lo), "hi": float(hi), "sd_pop": sd_pop, "dist": dist,
             "R": den / (den + n0)}
 
@@ -154,7 +171,7 @@ def main() -> None:
                "team": rs[0]["team"], "role": role, "group": group,
                "minutes": round(mins, 1), "matches": len(rs), "metrics": {}}
         for metric, (kind, num_f, den_f) in metric_specs.items():
-            pr = _prior(rel, metric, group)
+            pr = _prior(rel, metric, role)
             if pr is None:
                 continue
             num = float(sum(r[num_f] for r in rs))
@@ -163,14 +180,14 @@ def main() -> None:
                 continue
             post = _posterior(pr, num, den)
             rec["metrics"][metric] = {"num": num, "den": round(den, 2), **{
-                k: post[k] for k in ("mean", "sd", "lo", "hi", "sd_pop", "R")}}
-            pop_values[(campaign, group, metric)].append(post["mean"])
+                k: post[k] for k in ("mean", "median", "sd", "lo", "hi", "sd_pop", "R")}}
+            pop_values[(campaign, role, metric)].append(post["mean"])
         player_rows.append(rec)
 
     # ---- percentiles and labels
     for rec in player_rows:
         for metric, m in rec["metrics"].items():
-            ref = np.asarray(pop_values[(rec["campaign"], rec["group"], metric)])
+            ref = np.asarray(pop_values[(rec["campaign"], rec["role"], metric)])
             m["pct"] = float((ref <= m["mean"]).mean() * 100) if ref.size else None
 
     aus = [r for r in player_rows if r["team"] in AUS]
@@ -180,7 +197,7 @@ def main() -> None:
         rs = by_player[(rec["campaign"], rec["player_id"])]
         rec["labels"] = {}
         for metric, m in rec["metrics"].items():
-            pr = _prior(rel, metric, rec["group"])
+            pr = _prior(rel, metric, rec["role"])
             post = _posterior(pr, m["num"], m["den"])
             higher = not (metric in ("miscontrol", "dispossessed", "fouls_committed"))
             lab, pg, pb = classify(post["dist"], pr["mu"], post["sd_pop"],
@@ -189,6 +206,7 @@ def main() -> None:
                                      "p_bad": round(pb, 3),
                                      "R": round(post["R"], 3),
                                      "mu_pop": round(pr["mu"], 4),
+                                     "ref": pr["ref"],
                                      "split_half_r": pr["split_half_r"]}
 
     # ---- composites, bootstrapped over the player's own matches
@@ -206,7 +224,7 @@ def main() -> None:
             zs, ws = [], []
             for metric, w in usable:
                 _, num_f, den_f = metric_specs[metric]
-                pr = _prior(rel, metric, rec["group"])
+                pr = _prior(rel, metric, rec["role"])
                 mu, n0 = pr["mu"], pr["n0"]
                 scale = _div(den_f)
                 num_i = np.array([r[num_f] for r in rs], dtype=float)
@@ -255,7 +273,7 @@ def main() -> None:
     for rec in player_rows:
         for m in rec["metrics"].values():
             m.pop("dist", None)
-            for k in ("mean", "sd", "lo", "hi", "sd_pop"):
+            for k in ("mean", "median", "sd", "lo", "hi", "sd_pop"):
                 m[k] = round(float(m[k]), 4)
             m["R"] = round(float(m["R"]), 3)
 

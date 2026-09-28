@@ -149,6 +149,27 @@ svg { display:block; width:100%; height:auto; }
 .tbar .mid { position:absolute; left:50%; top:0; bottom:0; width:1px; background:var(--line-strong); }
 .tbar .iv { position:absolute; top:6px; height:10px; background:var(--ink-mute); opacity:.35; border-radius:2px; }
 .tbar .pt { position:absolute; top:3px; width:3px; height:16px; border-radius:1px; }
+.claim { background:var(--surface); border:1px solid var(--line); border-left:3px solid var(--turf);
+  border-radius:0 5px 5px 0; padding:12px 14px; }
+.ckind { font-size:10.5px; letter-spacing:.09em; text-transform:uppercase; color:var(--turf); font-weight:700; }
+.chead { font-size:15.5px; font-weight:650; margin:3px 0 6px; line-height:1.35; }
+.cev { margin:0 0 8px; padding-left:16px; font-size:12.5px; color:var(--ink-soft); }
+.cev li { margin:2px 0; }
+.cso { font-size:13px; border-top:1px dashed var(--line); padding-top:6px; }
+.ctitle { font-size:12px; letter-spacing:.06em; text-transform:uppercase; color:var(--ink-mute); font-weight:700; margin-bottom:6px; }
+.popq { border-bottom:1px dotted var(--ink-mute); cursor:help; }
+#pop { position:fixed; inset:0; background:rgba(0,0,0,.45); display:flex; align-items:center;
+  justify-content:center; z-index:60; padding:18px; }
+#pop[hidden] { display:none; }
+.pbox { background:var(--surface); border:1px solid var(--line-strong); border-radius:7px;
+  max-width:520px; padding:16px 18px; position:relative; max-height:80vh; overflow:auto; }
+.pbox h4 { margin:0 0 6px; font-size:16px; }
+.pbox p { margin:6px 0; font-size:13.5px; color:var(--ink-soft); }
+.pcalc { border-left:2px solid var(--line-strong); padding-left:9px; }
+.pneed { color:var(--ink); }
+.pcav { color:var(--chalk); }
+.pclose { position:absolute; top:6px; right:9px; background:none; border:0; font-size:20px;
+  color:var(--ink-mute); cursor:pointer; line-height:1; }
 .keys { display:flex; flex-wrap:wrap; gap:6px 20px; margin:2px 2px 12px; font-size:12.5px; color:var(--ink-soft); }
 .key { display:inline-flex; align-items:center; gap:7px; }
 .key i { width:14px; height:14px; border-radius:3px; flex:none; border:1px solid var(--line-strong); }
@@ -358,20 +379,82 @@ const LABELS = ['STRENGTH','LEAN','TYPICAL','WEAKNESS','CANNOT TELL'];
 const LAB_CLASS = l => l.replace(/\s/g,'').toUpperCase();
 const LAB_WORD = { STRENGTH:'Nailed on', WEAKNESS:'Nailed on', LEAN:'Early sign',
                    TYPICAL:'Measured, ordinary', 'CANNOT TELL':'Not enough football' };
+const KIND_WORD = { DEPENDENCY:'Who it runs through', ROUTE:'Where they come forward',
+                    ENABLER:'What a player unlocks', EXPOSURE:'Where they are gettable' };
 
-/* A diverging bar for one composite: the 80% interval as a band, the estimate as
-   a tick, zero as the field average. Everything is in population SDs, so the
-   same scale means the same thing in every row. */
+/* ---- one popup, driven by data-pop ---- */
+function popHtml(key) {
+  const P = DATA.profile_board;
+  const d = P.defs[key];
+  if (d) {
+    const rel = (P.reliability[key] || {}).all;
+    const unit = (P.reliability[key] || {}).unit;
+    let needs = '';
+    if (rel && rel.n0 !== null && rel.n0 !== undefined) {
+      const n = unit === 'attempts' ? `${Math.round(2.33*rel.n0)} attempts`
+              : unit === '100 opp' ? `${Math.round(2.33*rel.n0*100).toLocaleString()} opportunities`
+              : `${Math.round(2.33*rel.n0*90).toLocaleString()} minutes`;
+      needs = `<p class="pneed"><b>Needs about ${n}</b> before a player's own data
+        outweighs the field average${rel.split_half_r !== null && rel.split_half_r !== undefined
+          ? ` &middot; split-half reliability ${nf(rel.split_half_r,2)}` : ''}.</p>`;
+    } else if (rel) {
+      needs = `<p class="pneed"><b>Refused.</b> A player's value in one half of the sample
+        does not predict the other, so it carries no individual signal.</p>`;
+    }
+    return `<h4>${esc(d.label)}</h4><p>${esc(d.means)}</p>
+      <p class="pcalc"><b>How it is worked out.</b> ${esc(d.calc)}</p>
+      ${needs}${d.caveat ? `<p class="pcav"><b>Careful.</b> ${esc(d.caveat)}</p>` : ''}`;
+  }
+  if (P.composite_defs[key]) {
+    return `<h4>${esc(key)}</h4><p>${esc(P.composite_defs[key])}</p>
+      <p class="pcalc"><b>How it is worked out.</b> Each component is shrunk toward the
+      average for that position, turned into standard deviations from it, and averaged.
+      The interval comes from resampling the player's own matches, so it carries the
+      correlation between the components rather than assuming they are independent.</p>`;
+  }
+  return null;
+}
+
+/* ---- percentile radar over the composites ---- */
+function radar(comps, names) {
+  const R = 86, cx = 118, cy = 104, n = names.length;
+  if (n < 3) return '';
+  const ang = i => (i / n) * Math.PI * 2 - Math.PI / 2;
+  const rad = z => R * Math.max(0.06, Math.min(1, (z + 2.5) / 5));
+  const pt = (i, z) => [cx + Math.cos(ang(i)) * rad(z), cy + Math.sin(ang(i)) * rad(z)];
+  let g = '';
+  for (const ring of [-2, -1, 0, 1, 2]) {
+    const pts = names.map((_, i) => pt(i, ring).join(',')).join(' ');
+    g += `<polygon points="${pts}" fill="none" stroke="var(--line)"
+      stroke-width="${ring === 0 ? 1.3 : 0.7}" ${ring === 0 ? '' : 'stroke-dasharray="2 2"'}/>`;
+  }
+  const lo = names.map((nm, i) => pt(i, (comps[nm]||{}).lo ?? 0).join(',')).join(' ');
+  const hi = names.map((nm, i) => pt(i, (comps[nm]||{}).hi ?? 0).join(',')).join(' ');
+  const mid = names.map((nm, i) => pt(i, (comps[nm]||{}).z ?? 0).join(',')).join(' ');
+  g += `<polygon points="${hi}" fill="var(--turf)" opacity="0.13"/>`;
+  g += `<polygon points="${lo}" fill="var(--paper)" opacity="0.55"/>`;
+  g += `<polygon points="${mid}" fill="none" stroke="var(--turf)" stroke-width="2"/>`;
+  names.forEach((nm, i) => {
+    const [x, y] = pt(i, 2.9);
+    const anchor = Math.abs(x - cx) < 6 ? 'middle' : (x > cx ? 'start' : 'end');
+    const v = comps[nm] || {};
+    g += `<circle cx="${pt(i, v.z ?? 0)[0]}" cy="${pt(i, v.z ?? 0)[1]}" r="2.6" fill="var(--turf)"/>`;
+    g += `<text x="${x}" y="${y + 3}" text-anchor="${anchor}" style="font-size:9.5px"
+      fill="var(--ink-soft)">${esc(nm)}</text>`;
+    g += `<text x="${x}" y="${y + 13}" text-anchor="${anchor}" style="font-size:9px;font-weight:650"
+      fill="${(v.z ?? 0) >= 0 ? 'var(--turf)' : 'var(--chalk)'}">${(v.z ?? 0) >= 0 ? '+' : ''}${nf(v.z ?? 0,1)}</text>`;
+  });
+  return `<svg viewBox="0 0 236 212" style="max-width:280px">${g}</svg>`;
+}
+
 function swotBar(v, width = 260) {
   const LO = -2.2, HI = 2.2, span = HI - LO;
   const px = z => Math.max(0, Math.min(1, (z - LO) / span)) * 100;
   const a = px(v.lo), b = px(v.hi), m = px(v.z);
   const colour = v.z >= 0 ? 'var(--turf)' : 'var(--chalk)';
-  return `<div class="tbar" style="max-width:${width}px">
-    <div class="mid"></div>
+  return `<div class="tbar" style="max-width:${width}px"><div class="mid"></div>
     <div class="iv" style="left:${a}%;width:${Math.max(1, b - a)}%"></div>
-    <div class="pt" style="left:calc(${m}% - 1.5px);background:${colour}"></div>
-  </div>`;
+    <div class="pt" style="left:calc(${m}% - 1.5px);background:${colour}"></div></div>`;
 }
 
 function renderProfile() {
@@ -379,48 +462,59 @@ function renderProfile() {
   const players = P.australia.filter(r => r.campaign === st.camp)
                              .sort((a, b) => b.minutes - a.minutes);
   const team = P.team_australia.find(t => t.campaign === st.camp);
-  const teamNames = Object.keys(P.team_composites);
   const compNames = Object.keys(P.composites);
+  const claims = (P.insights || {})[st.camp] || [];
 
-  let h = `<h2>Strengths and weaknesses, against the field that played the same tournament</h2>
-  <p class="lede">Eleven matches is not enough to measure a player. It is enough to
-  <b>update a prior</b>, so nothing here is a raw rate: every figure is this player's own
-  evidence combined with the 128-match tournament field, weighted by how much football
-  that particular metric needs before it means anything. The scale is field standard
-  deviations, so <b>0 is the average team or player at that World Cup</b>.</p>`;
-
-  h += `<div class="controls"><span><span class="lbl">Squad</span><span class="seg">` +
+  let h = `<h2>What this squad can and cannot do</h2>
+  <p class="lede">Eleven matches cannot measure a player; they can only <b>update a prior</b>.
+  So every figure below is this player's own evidence combined with the 128-match tournament
+  field, compared against <b>others in the same position</b> and weighted by how much football
+  that metric needs before it means anything. 0 is an average player in that position at that
+  World Cup. <span class="dim">Hover or tap any metric name for what it is and how it is
+  calculated.</span></p>
+  <div class="controls"><span><span class="lbl">Squad</span><span class="seg">` +
     CAMPS.map(k => `<button data-set="scamp" data-val="${k}" aria-pressed="${st.camp===k}">${CAMP_NAME[k]}</button>`).join('') +
     `</span></span></div>`;
 
-  /* ---- the team first: what a manager reads before any player ---- */
-  if (team) {
-    const ranked = teamNames.filter(n => team.composites[n])
-      .sort((a, b) => team.composites[b].z - team.composites[a].z);
-    h += `<h3>The team &middot; ${team.matches} matches</h3>
-    <div class="card"><div class="scroll"><table><thead><tr>
-      <th>Against the field</th><th style="width:270px"></th><th>Estimate</th>
-      <th>80% range</th><th>Verdict</th></tr></thead><tbody>`;
-    for (const n of ranked) {
-      const v = team.composites[n];
-      h += `<tr><td>${esc(n)}</td><td>${swotBar(v)}</td>
-        <td class="num">${v.z >= 0 ? '+' : ''}${nf(v.z,2)}</td>
-        <td class="num dim">${v.lo >= 0 ? '+' : ''}${nf(v.lo,2)} to ${v.hi >= 0 ? '+' : ''}${nf(v.hi,2)}</td>
-        <td><span class="cell ${LAB_CLASS(v.label)}" style="height:20px;padding:0 10px;display:inline-flex">${esc(v.label)}</span></td></tr>`;
-    }
-    h += `</tbody></table></div></div>
-    <p class="cap">Read the bar, not the number: the shaded band is where the true value
-    probably sits. A band that straddles the centre line means this team was not
-    distinguishable from the field on that quality, however far the tick has drifted.</p>`;
+  /* ---- the findings, first ---- */
+  if (claims.length) {
+    h += `<h3>What the numbers say that the match does not</h3>
+    <div class="grid g2">` + claims.map(cl => `
+      <div class="claim">
+        <div class="ckind">${esc(KIND_WORD[cl.kind] || cl.kind)}</div>
+        <div class="chead">${esc(cl.headline)}</div>
+        <ul class="cev">${cl.evidence.map(e => `<li>${esc(e)}</li>`).join('')}</ul>
+        <div class="cso"><b>So:</b> ${esc(cl.so)}</div>
+      </div>`).join('') + `</div>
+    <p class="cap">Each claim is a rule over numbers computed and validated elsewhere on this
+    board, not a new estimate. Anything resting on a metric below the reliability floor is
+    dropped rather than hedged, and left versus right is never claimed, because the data
+    carries no side for a role.</p>`;
   }
 
-  /* ---- the player grid: the thing you scan ---- */
+  /* ---- the team ---- */
+  if (team) {
+    const ranked = compNames.filter(n => team.composites[n])
+      .sort((a, b) => team.composites[b].z - team.composites[a].z);
+    h += `<h3 style="margin-top:26px">The team &middot; ${team.matches} matches</h3>
+    <div class="card"><div class="scroll"><table><thead><tr>
+      <th>Against the field</th><th style="width:270px"></th><th>Estimate</th>
+      <th>80% range</th><th>Verdict</th></tr></thead><tbody>` +
+      ranked.map(n => { const v = team.composites[n];
+        return `<tr><td><span data-pop="${esc(n)}" class="popq">${esc(n)}</span></td>
+          <td>${swotBar(v)}</td>
+          <td class="num">${v.z >= 0 ? '+' : ''}${nf(v.z,2)}</td>
+          <td class="num dim">${nf(v.lo,2)} to ${nf(v.hi,2)}</td>
+          <td><span class="cell ${LAB_CLASS(v.label)}" style="height:20px;padding:0 10px;display:inline-flex">${esc(v.label)}</span></td></tr>`;
+      }).join('') + `</tbody></table></div></div>`;
+  }
+
+  /* ---- the grid ---- */
   h += `<h3 style="margin-top:26px">Every player, every quality</h3>
-  <div class="keys">` +
-    LABELS.map(l => `<span class="key"><i class="cell ${LAB_CLASS(l)}" style="width:14px;height:14px;border-radius:3px"></i>${esc(l)} <span class="dim">&middot; ${esc(LAB_WORD[l])}</span></span>`).join('') +
-    `</div>
-  <div class="scroll"><table class="swot"><thead><tr><th></th><th></th>` +
-    compNames.map(n => `<th class="rot">${esc(n)}</th>`).join('') +
+  <div class="keys">` + LABELS.map(l =>
+    `<span class="key"><i class="cell ${LAB_CLASS(l)}" style="width:14px;height:14px;border-radius:3px"></i>${esc(l)} <span class="dim">&middot; ${esc(LAB_WORD[l])}</span></span>`).join('') +
+  `</div><div class="scroll"><table class="swot"><thead><tr><th></th><th></th>` +
+    compNames.map(n => `<th class="rot"><span data-pop="${esc(n)}" class="popq">${esc(n)}</span></th>`).join('') +
     `</tr></thead><tbody>`;
   for (const r of players) {
     const key = r.campaign + '|' + r.player_id;
@@ -428,60 +522,64 @@ function renderProfile() {
       <td class="num dim" style="font-size:11px">${Math.round(r.minutes)}'</td>`;
     for (const n of compNames) {
       const v = (r.composites || {})[n];
-      if (!v) { h += `<td><div class="cell CANNOTTELL" title="not computed">&middot;</div></td>`; continue; }
-      const on = st.player === key ? ' on' : '';
-      h += `<td><div class="cell ${LAB_CLASS(v.label)}${on}" data-set="splayer" data-val="${key}"
-        title="${esc(n)}: ${esc(v.label)}, ${v.z>=0?'+':''}${nf(v.z,2)} SD (80% range ${nf(v.lo,2)} to ${nf(v.hi,2)}), reliability ${nf(v.R,2)}"
+      if (!v) { h += `<td><div class="cell CANNOTTELL">&middot;</div></td>`; continue; }
+      h += `<td><div class="cell ${LAB_CLASS(v.label)}${st.player===key?' on':''}"
+        data-set="splayer" data-val="${key}"
+        title="${esc(n)}: ${esc(v.label)}, ${v.z>=0?'+':''}${nf(v.z,2)} SD against others in the same position (80% range ${nf(v.lo,2)} to ${nf(v.hi,2)}), reliability ${nf(v.R,2)}"
         >${v.z >= 0 ? '+' : ''}${nf(v.z,1)}</div></td>`;
     }
     h += '</tr>';
   }
   h += `</tbody></table></div>
-  <p class="cap">Each cell is that player against the players of the same position group at
-  the same World Cup, in field standard deviations. Click any cell for the numbers behind
-  the row. <b>Grey is not the same as hatched</b>: grey means we measured it and it was
-  ordinary, which is a finding; hatched means there was not enough football to say.</p>`;
+  <p class="cap">Each cell is that player against others <b>in the same position</b> at the
+  same World Cup. <b>Grey is not hatched</b>: grey means measured and ordinary, which is a
+  finding; hatched means not enough football to say. Click a cell for the detail.</p>`;
 
-  /* ---- drill-down for one player ---- */
+  /* ---- one player ---- */
   const sel = players.find(r => r.campaign + '|' + r.player_id === st.player);
   if (sel) {
     const rows = Object.entries(sel.metrics)
       .filter(([m]) => sel.labels && sel.labels[m])
       .sort((a, b) => (b[1].pct ?? 0) - (a[1].pct ?? 0));
+    const usable = compNames.filter(n => (sel.composites || {})[n]);
     h += `<h3 style="margin-top:26px">${esc(sel.player)} &middot; ${esc(sel.role)} &middot;
       ${Math.round(sel.minutes)} minutes over ${sel.matches} matches</h3>
-    <div class="scroll tall"><table><thead><tr>
-      <th>Metric</th><th>What happened</th><th>Expect next time</th><th>80% range</th>
-      <th>Field average</th><th>Percentile</th><th>Reliability</th><th>Verdict</th>
-      </tr></thead><tbody>`;
-    for (const [m, v] of rows) {
-      const L = sel.labels[m];
-      const unit = (P.reliability[m] || {}).unit || '';
-      const raw = v.den > 0 ? v.num / v.den : null;
-      h += `<tr><td>${esc(m.replace(/_/g,' '))}</td>
-        <td class="num dim">${raw === null ? '&ndash;' : nf(raw,2)} <span style="font-size:10.5px">over ${nf(v.den,0)} ${esc(unit === 'attempts' ? 'att' : unit)}</span></td>
-        <td class="num">${nf(v.mean,2)}</td>
-        <td class="num dim">${nf(v.lo,2)} to ${nf(v.hi,2)}</td>
-        <td class="num dim">${nf(L.mu_pop,2)}</td>
-        <td class="num">${v.pct === null ? '&ndash;' : nf(v.pct,0)}</td>
-        <td class="num ${L.R < 0.5 ? 'dim' : ''}">${nf(L.R,2)}</td>
-        <td><span class="cell ${LAB_CLASS(L.label)}" style="height:19px;padding:0 8px;display:inline-flex;font-size:10.5px">${esc(L.label)}</span></td></tr>`;
-    }
-    h += `</tbody></table></div>
-    <p class="cap"><b>What happened</b> is the raw count over the opportunities he or she
-    actually had &mdash; a description of this tournament. <b>Expect next time</b> is the
-    shrunken estimate, which is a forecast and is deliberately pulled toward the field
-    average in proportion to how little evidence there is. <b>Reliability</b> is the share
-    of that estimate coming from the player rather than the prior: below 0.50 the number is
-    mostly the field, and no verdict above <i>Early sign</i> is given.</p>`;
+    <div class="grid g2" style="align-items:start">
+      <div class="card"><div class="ctitle">Against other ${esc(sel.role)}s at this World Cup</div>
+        ${radar(sel.composites || {}, usable)}
+        <p class="cap" style="margin-top:4px">Rings are &minus;2 to +2 standard deviations;
+        the middle ring is the average player in this position. The shaded band is the 80%
+        range, so a thin band is a confident reading and a fat one is not.</p></div>
+      <div><div class="scroll tall"><table><thead><tr>
+        <th>Metric</th><th>What happened</th><th>Expect next</th><th>80% range</th>
+        <th>Position avg</th><th>Pct</th><th>Rel</th><th>Verdict</th>
+        </tr></thead><tbody>` +
+      rows.map(([m, v]) => { const L = sel.labels[m];
+        const unit = (P.reliability[m] || {}).unit || '';
+        const raw = v.den > 0 ? v.num / v.den : null;
+        return `<tr><td><span data-pop="${esc(m)}" class="popq">${esc((P.defs[m]||{}).label || m.replace(/_/g,' '))}</span></td>
+          <td class="num dim">${raw === null ? '&ndash;' : nf(raw,2)} <span style="font-size:10px">/${nf(v.den,0)}</span></td>
+          <td class="num">${nf(v.median ?? v.mean,2)}</td>
+          <td class="num dim">${nf(v.lo,2)}&ndash;${nf(v.hi,2)}</td>
+          <td class="num dim">${nf(L.mu_pop,2)}</td>
+          <td class="num">${v.pct === null ? '&ndash;' : nf(v.pct,0)}</td>
+          <td class="num ${L.R < 0.5 ? 'dim' : ''}">${nf(L.R,2)}</td>
+          <td><span class="cell ${LAB_CLASS(L.label)}" style="height:18px;padding:0 6px;display:inline-flex;font-size:10px">${esc(L.label)}</span></td></tr>`;
+      }).join('') + `</tbody></table></div></div></div>
+    <p class="cap"><b>What happened</b> is the raw value over the opportunities they actually
+    had. <b>Expect next</b> is the shrunken estimate, pulled toward the average for the
+    position in proportion to how little evidence there is. <b>Rel</b> is how much of that
+    estimate comes from the player rather than the prior; below 0.50 no verdict above
+    <i>Early sign</i> is given.</p>`;
   }
 
-  h += `<div class="note" style="margin-top:20px"><b>Why volumes are per opportunity, not per 90.</b>
-  Australia had 38% of the ball at the 2022 World Cup. Anything measured per 90 would
-  mostly record how little of the ball they had: the first build of this chart returned 43
-  weaknesses against 10 strengths for two sides that reached a semi-final and a round of 16.
-  Attacking volume is therefore measured per 100 of their own on-ball events and defensive
-  volume per 100 of the opponent's, which measures the player rather than the scoreline.</div>`;
+  h += `<div class="note" style="margin-top:20px"><b>Why volumes are per opportunity.</b>
+  Australia had 38% of the ball at the 2022 World Cup, so anything per 90 would mostly record
+  how little of it they had: the first build returned 43 weaknesses against 10 strengths for
+  two sides that reached a semi-final and a round of 16. Attacking volume is per 100 of their
+  own on-ball events, defensive volume per 100 of the opponent's.</div>
+  <div id="pop" hidden><div class="pbox"><button class="pclose" data-pop-close>&times;</button>
+    <div id="pbody"></div></div></div>`;
 
   $('#p-profile').innerHTML = h;
 }
@@ -911,7 +1009,24 @@ function renderPathway() {
 const RENDER = { campaigns:renderCampaigns, profile:renderProfile, shape:renderLines, compare:renderCompare,
                  players:renderPlayers, pathway:renderPathway };
 
+/* metric popups: hover to open on a pointer, click anywhere to open or close */
+function showPop(key) {
+  const html = popHtml(key);
+  if (!html) return;
+  const box = $('#pbody'); if (!box) return;
+  box.innerHTML = html;
+  $('#pop').hidden = false;
+}
+document.addEventListener('mouseover', ev => {
+  const q = ev.target.closest('[data-pop]');
+  if (q && $('#pop') && $('#pop').hidden) showPop(q.dataset.pop);
+});
 document.addEventListener('click', ev => {
+  if (ev.target.closest('[data-pop-close]') || ev.target.id === 'pop') {
+    $('#pop').hidden = true; return;
+  }
+  const q = ev.target.closest('[data-pop]');
+  if (q) { showPop(q.dataset.pop); return; }
   const tab = ev.target.closest('.tab');
   if (tab) {
     for (const t of document.querySelectorAll('.tab')) t.setAttribute('aria-selected', String(t === tab));

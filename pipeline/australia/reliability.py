@@ -144,9 +144,19 @@ def main() -> None:
         per_group[GROUP_OF.get(r["role"], "MID")].add(r["player_id"])
     groups = {g for g, ids in per_group.items() if len(ids) >= MIN_PLAYERS}
 
-    def group_of(role: str) -> str:
+    def keys_for(role: str) -> list[str]:
+        """Every reference class this row contributes to, finest first.
+
+        A DM informs the DM prior, the MID prior and the whole population. The
+        estimator then uses the finest class with enough players behind it, so a
+        centre back is compared with centre backs rather than with wingers.
+        """
         g = GROUP_OF.get(role, "MID")
-        return g if g in groups else "ALL"
+        out = [role]
+        if g in groups:
+            out.append(g)
+        out.append("ALL")
+        return out
 
     out: dict[str, dict] = {}
 
@@ -155,8 +165,8 @@ def main() -> None:
         agg: dict[str, dict[int, list]] = defaultdict(lambda: defaultdict(list))
         for r in rows:
             if r[den] > 0:
-                agg[group_of(r["role"])][r["player_id"]].append((r[num], r[den]))
-                agg["ALL"][r["player_id"]].append((r[num], r[den]))
+                for k in keys_for(r["role"]):
+                    agg[k][r["player_id"]].append((r[num], r[den]))
         for g, byplayer in agg.items():
             k = np.array([sum(x for x, _ in v) for v in byplayer.values()], dtype=float)
             n = np.array([sum(y for _, y in v) for v in byplayer.values()], dtype=float)
@@ -185,8 +195,8 @@ def main() -> None:
         for r in rows:
             e = r[exp_f] / div
             if e > 0:
-                agg[group_of(r["role"])][r["player_id"]].append((r[metric], e))
-                agg["ALL"][r["player_id"]].append((r[metric], e))
+                for k in keys_for(r["role"]):
+                    agg[k][r["player_id"]].append((r[metric], e))
         for g, byplayer in agg.items():
             y = np.array([sum(x for x, _ in v) for v in byplayer.values()], dtype=float)
             e = np.array([sum(z for _, z in v) for v in byplayer.values()], dtype=float)
@@ -206,7 +216,7 @@ def main() -> None:
                 "split_half_n": n_sh,
             }
 
-    c.write("reliability.json", {"groups": sorted(groups | {"ALL"}),
+    c.write("reliability.json", {"groups": sorted(groups | {"ALL"} | set(GROUP_OF)),
                                  "min_attempts": MIN_ATTEMPTS,
                                  "min_minutes": MIN_MINUTES, "metrics": out})
 
